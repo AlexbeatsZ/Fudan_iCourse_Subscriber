@@ -127,6 +127,7 @@ def main():
     p.add_argument("command",choices=["add","list","download"])
     p.add_argument("course",nargs="?",help="课程编号或目录链接")
     p.add_argument("--lesson",help="仅下载指定课次")
+    p.add_argument("--proxy",help="可选 HTTP/SOCKS 代理；默认直连 WebVPN，不继承系统环境代理")
     p.add_argument("--root",type=Path,default=Path(__file__).resolve().parent/"local-data")
     args=p.parse_args();args.root.mkdir(parents=True,exist_ok=True)
     db=sqlite3.connect(args.root/"library.sqlite3")
@@ -145,7 +146,11 @@ def main():
         vpn=None
         for attempt in range(3):
             try:
-                vpn=WebVPNSession();vpn.login(account,password);vpn.authenticate_icourse(account,password)
+                vpn=WebVPNSession()
+                vpn.session.trust_env=False
+                if args.proxy:
+                    vpn.session.proxies.update({'http':args.proxy,'https':args.proxy})
+                vpn.login(account,password);vpn.authenticate_icourse(account,password)
                 if not ICourseClient(vpn).check_alive():
                     raise RuntimeError("登录会话验证失败")
                 break
