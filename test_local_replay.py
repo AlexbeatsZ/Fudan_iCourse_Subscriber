@@ -2,8 +2,10 @@ import base64
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
-from local_replay import timeline, write_player, download_video, course_id
+from urllib.request import Request,urlopen
+from local_replay import timeline, write_player, download_video, course_id, fetch_ppt, make_server
 
 
 class Response:
@@ -18,6 +20,19 @@ class Response:
 class Client:
     def __init__(self,response):self.vpn=self;self.response=response;self.headers=None
     def get(self,url,**kw):self.headers=kw.get('headers');return self.response
+
+
+class ImageResponse:
+    status_code=200
+    content=b'jpeg'
+    headers={"Content-Type":"image/jpeg"}
+    def raise_for_status(self):pass
+
+
+class ImageVPN:
+    def __init__(self):self.called=[]
+    def get(self,url,**kw):self.called.append(('get',url));return ImageResponse()
+    def get_raw(self,url,**kw):self.called.append(('get_raw',url));return ImageResponse()
 
 
 class ReplayTests(unittest.TestCase):
@@ -67,9 +82,41 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(p.read_bytes(),body)
             self.assertEqual(len(list(Path(d).glob('*.invalid-*'))),1)
 
+    def test_corrupt_partial_is_quarantined_before_restart(self):
+        body=b'\x00\x00\x00\x18ftypisom'+b'x'*30
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'video.mp4'
+            p.with_suffix('.mp4.part').write_bytes(b'old-part')
+            p.with_suffix('.mp4.json').write_bytes(b'\x00'*20)
+            download_video(Client(Response(body,0,len(body))),'https://example.com/v.mp4',p)
+            self.assertEqual(p.read_bytes(),body)
+            quarantined=list(Path(d).glob('video.mp4.part.invalid-*'))
+            self.assertEqual(len(quarantined),1)
+            self.assertEqual(quarantined[0].read_bytes(),b'old-part')
+
     def test_course_url_host(self):
         self.assertEqual(course_id('https://icourse.fudan.edu.cn/coursedetail?course_id=37113'),'37113')
         with self.assertRaises(ValueError):course_id('https://example.com/?course_id=37113')
+
+    def test_ppt_webvpn_url_is_not_encoded_twice(self):
+        vpn=ImageVPN()
+        self.assertEqual(fetch_ppt(vpn,'https://webvpn.fudan.edu.cn/encoded.jpg'),b'jpeg')
+        self.assertEqual(fetch_ppt(vpn,'https://icourse.fudan.edu.cn/ppt.jpg'),b'jpeg')
+        self.assertEqual([name for name,_ in vpn.called],['get_raw','get'])
+
+    def test_local_server_supports_video_ranges(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d,'video.mp4').write_bytes(b'0123456789')
+            server=make_server(Path(d),port=0)
+            thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            try:
+                request=Request(f'http://127.0.0.1:{server.server_port}/video.mp4',headers={'Range':'bytes=3-6'})
+                with urlopen(request,timeout=5) as response:
+                    self.assertEqual(response.status,206)
+                    self.assertEqual(response.headers['Content-Range'],'bytes 3-6/10')
+                    self.assertEqual(response.read(),b'3456')
+            finally:
+                server.shutdown();server.server_close();thread.join(5)
 
 
 if __name__=='__main__':unittest.main()

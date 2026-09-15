@@ -4,7 +4,7 @@
 # Current State
 上游完整克隆，基于 5492d55，工作分支 feat/local-replay-ppt。origin 为 AlexbeatsZ/Fudan_iCourse_Subscriber，upstream 为 LeafCreeper/Fudan_iCourse_Subscriber。local_replay.py 是新增独立入口，仍需实际下载验收。上游 main.py 未修改。个人文件存 local-data/，不提交。
 
-已验证真实登录和课程 37113 枚举（24 节），曾收到视频分段数据，但任务退出后片段为 0 字节，不能计为下载成功。2026-09-16 重试时 WebVPN 建立会话持续超时。6 项单元测试通过。已增加原子记录写入、片段落盘、有限登录重试、损坏空片段记录恢复。
+已验证真实登录和课程 37113 枚举（24 节），课次 653729 已完整下载 1,773,490,386 字节视频并保存 34 个 PPT 时间事件和离线页面；中断后从 638,187,325 字节续传成功。serve 浏览器实测首/中/末事件跳到 0、4574、6386 秒，视频时长 6438.378833 秒。新增只监听本机且支持 Range 的 serve 命令供浏览器随机跳转。9 项单元测试通过。
 
 # Active Work
 - 验证本地登录、完整视频下载、PPT 首中末时间对齐。
@@ -18,4 +18,6 @@
 
 # Durable Lessons
 本机环境代理 7897 曾导致 WebVPN TLS EOF；同一 URL 用 requests trust_env=False 直连正常返回 302 登录跳转。本地入口默认直连 WebVPN，支持 --proxy 显式覆盖。不能据脚本代理失败推断用户浏览器或 WebVPN 网站不可用。
+WebVPN 偶尔会在票据请求返回 HTTP 200 后仍未形成可用会话；上游主流程按 10 次重新登录处理，本地入口保持相同上限。
 平台 created_sec 是 PPT 相对视频秒数。时间 0 有效；回翻页需要保留多次时间事件，不能直接使用 OCR 去重后的集合。
+PPT API 可能返回已经过 WebVPN 编码的图片 URL；此时必须使用 get_raw，不能再次 get_vpn_url 编码。

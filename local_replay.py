@@ -3,8 +3,10 @@
 Run with: uv run --with requests --with pycryptodome local_replay.py --help
 """
 import argparse
+import functools
 import getpass
 import html
+from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
 import json
 import math
 import os
@@ -50,6 +52,74 @@ def timeline(items):
     return sorted(result,key=lambda x:(x["time"],x["order"]))
 
 
+def fetch_ppt(vpn,url):
+    """Fetch either an ordinary iCourse URL or an already encoded WebVPN URL."""
+    from src.runtime import config
+    request=vpn.get_raw if url.startswith(config.WEBVPN_BASE) else vpn.get
+    response=request(url,timeout=60)
+    response.raise_for_status()
+    if not response.headers.get("Content-Type","").startswith("image/"):
+        raise RuntimeError("PPT 响应不是图片")
+    return response.content
+
+
+class RangeRequestHandler(SimpleHTTPRequestHandler):
+    """Serve local videos with the byte ranges browsers need for seeking."""
+    protocol_version="HTTP/1.1"
+
+    def send_head(self):
+        self._range=None
+        header=self.headers.get("Range")
+        if not header:
+            return super().send_head()
+        path=Path(self.translate_path(self.path))
+        if not path.is_file():
+            return super().send_head()
+        match=re.fullmatch(r"bytes=(\d*)-(\d*)",header.strip())
+        size=path.stat().st_size
+        if not match or not (match[1] or match[2]):
+            self.send_error(416,"Invalid byte range")
+            return None
+        if match[1]:
+            start=int(match[1]);end=int(match[2]) if match[2] else size-1
+        else:
+            length=int(match[2]);start=max(0,size-length);end=size-1
+        end=min(end,size-1)
+        if start>=size or start>end:
+            self.send_response(416)
+            self.send_header("Content-Range",f"bytes */{size}")
+            self.send_header("Content-Length","0")
+            self.end_headers()
+            return None
+        stream=path.open("rb")
+        self.send_response(206)
+        self.send_header("Content-Type",self.guess_type(str(path)))
+        self.send_header("Accept-Ranges","bytes")
+        self.send_header("Content-Range",f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length",str(end-start+1))
+        self.send_header("Last-Modified",self.date_time_string(path.stat().st_mtime))
+        self.end_headers()
+        self._range=(start,end)
+        return stream
+
+    def copyfile(self,source,outputfile):
+        if self._range is None:
+            return super().copyfile(source,outputfile)
+        start,end=self._range
+        source.seek(start);remaining=end-start+1
+        while remaining:
+            chunk=source.read(min(1024*1024,remaining))
+            if not chunk:break
+            outputfile.write(chunk);remaining-=len(chunk)
+
+
+def make_server(folder,bind="127.0.0.1",port=8765):
+    handler=functools.partial(RangeRequestHandler,directory=str(folder))
+    server=ThreadingHTTPServer((bind,port),handler)
+    server.daemon_threads=True
+    return server
+
+
 def write_player(folder,title,pages):
     payload = json.dumps(pages,ensure_ascii=False).replace("<","\\u003c")
     template = """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
@@ -76,9 +146,14 @@ def download_video(client,url,path):
     try:
         meta=json.loads(record.read_text()) if record.exists() else {}
     except (ValueError,UnicodeError):
-        if path.exists() or (part.exists() and part.stat().st_size):
-            raise RuntimeError("下载记录损坏，保留原文件；请更换输出目录") from None
-        record.replace(record.with_name(record.name+f'.invalid-{time.time_ns()}'))
+        if path.exists():
+            raise RuntimeError("下载记录损坏，已有完整文件未覆盖") from None
+        stamp=f'.invalid-{time.time_ns()}'
+        if part.exists() and part.stat().st_size:
+            part.replace(part.with_name(part.name+stamp))
+            print("旧片段缺少可验证记录，已隔离并重新下载。",flush=True)
+        if record.exists():
+            record.replace(record.with_name(record.name+stamp))
         meta={}
     if path.exists():
         if meta.get("complete") and meta.get("source")==identity and path.stat().st_size==meta.get("total"):
@@ -124,10 +199,12 @@ def download_video(client,url,path):
 
 def main():
     p=argparse.ArgumentParser(description="保存课程，下载视频与 PPT，生成离线联动播放器")
-    p.add_argument("command",choices=["add","list","download"])
+    p.add_argument("command",choices=["add","list","download","serve"])
     p.add_argument("course",nargs="?",help="课程编号或目录链接")
     p.add_argument("--lesson",help="仅下载指定课次")
     p.add_argument("--proxy",help="可选 HTTP/SOCKS 代理；默认直连 WebVPN，不继承系统环境代理")
+    p.add_argument("--bind",default="127.0.0.1",help="serve 监听地址，默认只允许本机访问")
+    p.add_argument("--port",type=int,default=8765,help="serve 端口，默认 8765")
     p.add_argument("--root",type=Path,default=Path(__file__).resolve().parent/"local-data")
     args=p.parse_args();args.root.mkdir(parents=True,exist_ok=True)
     db=sqlite3.connect(args.root/"library.sqlite3")
@@ -139,13 +216,26 @@ def main():
             return
         if not args.course:raise ValueError("需要课程编号或目录链接")
         cid=course_id(args.course)
+        if args.command=="serve":
+            if not args.lesson or not args.lesson.isdigit():raise ValueError("serve 需要 --lesson 课次编号")
+            folder=args.root/cid/args.lesson
+            if not (folder/"index.html").is_file() or not (folder/"video.mp4").is_file():
+                raise RuntimeError("该课次尚未完整下载")
+            server=make_server(folder,args.bind,args.port)
+            print(f"打开：http://{args.bind}:{server.server_port}/index.html",flush=True)
+            try:server.serve_forever()
+            except KeyboardInterrupt:print("已停止本地播放器服务。")
+            finally:server.server_close()
+            return
         from src.api.webvpn import WebVPNSession
         from src.api.icourse import ICourseClient
         account=os.environ.get("StuId") or input("学号：")
         password=os.environ.get("UISPsw") or getpass.getpass("统一身份认证密码：")
         vpn=None
-        for attempt in range(3):
+        max_login_attempts=10
+        for attempt in range(max_login_attempts):
             try:
+                print(f"登录 WebVPN 与 iCourse（{attempt+1}/{max_login_attempts}）…",flush=True)
                 vpn=WebVPNSession()
                 vpn.session.trust_env=False
                 if args.proxy:
@@ -156,7 +246,7 @@ def main():
                 break
             except Exception:
                 if vpn: vpn.session.close()
-                if attempt==2:raise
+                if attempt==max_login_attempts-1:raise
                 print("登录链路暂时失败，重新建立会话…",flush=True)
                 time.sleep(3)
         password=None
@@ -181,9 +271,8 @@ def main():
             for i,item in enumerate(pages):
                 target=folder/"ppt"/f"{i+1:05}.jpg"
                 if not target.exists():
-                    response=vpn.get(item["url"],timeout=60);response.raise_for_status()
-                    if not response.headers.get("Content-Type","").startswith("image/"):raise RuntimeError("PPT 响应不是图片")
-                    temp=target.with_suffix(".part");temp.write_bytes(response.content);temp.replace(target)
+                    content=fetch_ppt(vpn,item["url"])
+                    temp=target.with_suffix(".part");temp.write_bytes(content);temp.replace(target)
                 item["file"]=f"ppt/{target.name}";item.pop("url",None)
             (folder/"timeline.json").write_text(json.dumps(pages,ensure_ascii=False,indent=2),encoding="utf-8")
             write_player(folder,detail["title"]+" "+lecture["sub_title"],pages)
