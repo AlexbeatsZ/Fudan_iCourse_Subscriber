@@ -126,6 +126,8 @@ jobs:
           SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
           EXPORT_COURSE_ID: ${{ inputs.course_id }}
           EXPORT_SUB_IDS: ${{ inputs.sub_ids }}
         run: |
