@@ -39,9 +39,11 @@
 | `DASHSCOPE_API_KEY` | ⬜ | ModelScope 平台 API Key | `ms-xxxxxxxx` |
 | `DEEPSEEK_API_KEY` | ⬜ | DeepSeek API Key（推荐） | `sk-xxxxxxxx` |
 | `GEMINI_API_KEY` | ⬜ | Gemini API Key | `AIza...` |
-| `SMTP_EMAIL` | ✅ | 用于发送邮件的 QQ 邮箱 | `123456@qq.com` |
-| `SMTP_PASSWORD` | ✅ | QQ 邮箱 SMTP **授权码**（不是登录密码） | `abcdefghijklmnop` |
+| `SMTP_EMAIL` | ✅ | 用于发送邮件的邮箱 | `123456@qq.com` |
+| `SMTP_PASSWORD` | ✅ | SMTP 授权码或应用专用密码（不是登录密码） | `abcdefghijklmnop` |
 | `RECEIVER_EMAIL` | ✅ | 接收摘要邮件的邮箱 | `you@m.fudan.edu.com` |
+| `SMTP_HOST` | ⬜ | SMTP SSL 服务器（默认 QQ） | `smtp.gmail.com` |
+| `SMTP_PORT` | ⬜ | SMTP SSL 端口 | `465` |
 
 > 至少配置一个 LLM API Key（DASHSCOPE、DEEPSEEK 或 GEMINI）。程序按配置顺序自动回退尝试。如果需要选择其他的LLM供应商，可以在`src\runtime\config.py`路径下自定义供应商。
 
@@ -63,12 +65,10 @@
 | **DeepSeek**（`DEEPSEEK_API_KEY`） | [DeepSeek Platform](https://platform.deepseek.com/) | 注册赠额度 |
 | **Gemini**（`GEMINI_API_KEY`） | [Google AI Studio](https://aistudio.google.com/) | flash模型每日免费额度 |
 
-### 第 5 步：获取 QQ 邮箱 SMTP 授权码
+### 第 5 步：配置邮件 SMTP
 
-1. 登录 [QQ 邮箱](https://mail.qq.com) → 设置 → 账户与安全 → 安全设置
-2. 找到「POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV 服务」
-3. 开启 SMTP 服务，按提示获取**授权码**（16 位字母）
-4. 将授权码填入 `SMTP_PASSWORD`
+- **QQ 邮箱**：保持默认 `smtp.qq.com:465`，在账户与安全设置中开启 SMTP 服务，将授权码填入 `SMTP_PASSWORD`。
+- **Gmail**：设置 `SMTP_HOST=smtp.gmail.com`、`SMTP_PORT=465`，开启两步验证并将 Google 应用专用密码填入 `SMTP_PASSWORD`。
 
 ### 第 6 步：运行
 
