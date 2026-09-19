@@ -11,3 +11,5 @@
 - PPT captions are hidden (with no reserved space) in normal split view; show only in slide-focus mode and the fullscreen lightbox. Focus captions: 32px. Lightbox: clamp(28px, 4.86vh, 76px), approximately 52.5px at 1080p (2.5 times 21px). Let text wrap on narrow screens; flex image region shrinks to preserve caption visibility.
 - No transcript timing/content changes for presentation requests. Auto-follow scrolls only the transcript container, never the page.
 - Verification: open real local lecture; seek using transcript, inspect desktop and narrow layouts, PPT lightbox and native video fullscreen.
+
+- Slide and lightbox left/right hover buttons navigate chronological PPT events and seek the shared video timeline; first/last boundaries are disabled. Clicks must not bubble into the focus toggle. Keyboard focus and touch reveal controls. Two explicit alignment buttons choose the height reference: video or slide. Use the reference media aspect ratio and pane width, capped at 58vh; contain both images without cropping. Persist the mode, recompute on resize/metadata/image load and keep captions hidden in normal mode.
