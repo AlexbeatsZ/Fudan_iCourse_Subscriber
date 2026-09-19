@@ -76,10 +76,10 @@ def merge(local_path: str, remote_path: str):
                 INSERT OR IGNORE INTO main.lectures
                     (sub_id, course_id, sub_title, date, transcript, summary,
                      processed_at, emailed_at, error_msg, error_count, error_stage,
-                     summary_model)
+                     summary_model, transcript_segments)
                 SELECT sub_id, course_id, sub_title, date, transcript, summary,
                        processed_at, emailed_at, error_msg, error_count, error_stage,
-                       summary_model
+                       summary_model, transcript_segments
                 FROM local.lectures
             """)
 
@@ -89,6 +89,7 @@ def merge(local_path: str, remote_path: str):
             conn.execute("""
                 UPDATE main.lectures SET
                     transcript    = COALESCE(l.transcript,    main.lectures.transcript),
+                    transcript_segments = COALESCE(l.transcript_segments, main.lectures.transcript_segments),
                     summary       = COALESCE(l.summary,       main.lectures.summary),
                     summary_model = COALESCE(l.summary_model, main.lectures.summary_model),
                     processed_at  = COALESCE(l.processed_at,  main.lectures.processed_at),

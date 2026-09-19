@@ -14,8 +14,8 @@ Two consumption modes share the same VAD/ASR core:
                    ``scheduler.AudioDownloader`` — Transcriber only reads.
 
 Both modes return ``(transcript, segments)`` where segments is a list of
-``{start_ms, end_ms, text}`` dicts kept in memory for bucketer prompt assembly
-and NEVER persisted to DB (the joined transcript string is what the DB holds).
+``{start_ms, end_ms, text}`` dicts used for prompt assembly and persisted
+alongside the full transcript for synchronized local subtitles.
 """
 
 import os

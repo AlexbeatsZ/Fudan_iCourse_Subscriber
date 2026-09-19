@@ -38,6 +38,7 @@ threads pick up refreshed cookies through the shared ``ICourseClient``.
 from __future__ import annotations
 
 import time
+import json
 from typing import TYPE_CHECKING, Optional
 
 from src.ai import bucketer
@@ -92,6 +93,13 @@ class LectureRunner:
         existing = self._db.get_lecture(sub_id)
         # ── Phase A — short-circuit if a summary already exists ─────────
         if self._has_summary(existing):
+            if not existing.get("transcript_segments"):
+                try:
+                    transcript, _ = self._get_transcript(existing, course_id, sub_id)
+                    if transcript is None:
+                        return None
+                finally:
+                    self._release_audio(sub_id)
             self._reporter.lecture_skip_v2_done(
                 sub_title, len(existing["summary"])
             )
@@ -205,7 +213,7 @@ class LectureRunner:
         prefetching from spending a download slot (and a full lecture of
         bandwidth) on audio that would just be killed in Phase H."""
         existing = self._db.get_lecture(sub_id)
-        if existing and existing.get("transcript"):
+        if existing and existing.get("transcript_segments"):
             return False
         if config.USE_OFFICIAL_TRANSCRIPT:
             try:
@@ -256,13 +264,13 @@ class LectureRunner:
         complete-enough (no >20 min silence gaps) it replaces the ASR
         step entirely, saving ~5 min of CPU time per lecture.
         """
-        if existing and existing.get("transcript"):
+        if existing and existing.get("transcript_segments"):
             self._reporter.info(
                 f"    Transcript exists "
                 f"({len(existing['transcript'])} chars), "
                 f"skipping transcription."
             )
-            return existing["transcript"], None
+            return existing["transcript"], json.loads(existing["transcript_segments"])
 
         # Try official transcript before firing up ASR (config-gated).
         if config.USE_OFFICIAL_TRANSCRIPT:
@@ -281,7 +289,7 @@ class LectureRunner:
                         f"    Using official transcript "
                         f"({len(text)} chars, {len(official)} segments)"
                     )
-                    self._db.update_transcript(sub_id, text)
+                    self._db.update_transcript(sub_id, text, official)
                     # The audio may have been prefetched before we knew the
                     # official transcript was usable — stop that download
                     # now instead of letting it run until Phase H.
@@ -346,7 +354,7 @@ class LectureRunner:
             self._release_audio(sub_id)
             raise
 
-        self._db.update_transcript(sub_id, transcript)
+        self._db.update_transcript(sub_id, transcript, segments)
         return transcript, segments
 
     def _summarize(self, sub_id: str, course_title: str, transcript: str,

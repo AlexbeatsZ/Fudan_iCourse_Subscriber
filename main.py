@@ -116,7 +116,9 @@ def _enumerate_lectures(client: ICourseClient, db: Database,
             new_lectures = [
                 lec for lec in lectures
                 if lec.get("has_playback")
-                and str(lec["sub_id"]) not in known_processed
+                and (str(lec["sub_id"]) not in known_processed
+                     or (not (db.get_lecture(str(lec["sub_id"])) or {}).get("transcript_segments")
+                         and ((db.get_lecture(str(lec["sub_id"])) or {}).get("error_count") or 0) < 3))
             ]
             unprocessed = db.get_unprocessed_lectures(course_id)
             new_ids = {str(lec["sub_id"]) for lec in new_lectures}
@@ -300,6 +302,7 @@ def run():
         )
         # Fall through — crawl-only mode is valid.
 
+    vpn = login_with_retry()
     db = Database()
     corrected = db.sync_dates_from_sub()
     if corrected:
@@ -310,7 +313,6 @@ def run():
         config.SMTP_EMAIL and config.SMTP_PASSWORD
     ) else None
 
-    vpn = login_with_retry()
     client = ICourseClient(vpn)
     email_items: list = []
 

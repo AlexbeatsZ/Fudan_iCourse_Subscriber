@@ -24,6 +24,7 @@ import json
 import os
 import shlex
 import sys
+import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -40,6 +41,9 @@ def main():
     lookup = {str(k).upper(): v for k, v in ctx.items() if v}
 
     emitted: set[str] = set()
+    run_command = sys.argv[1:]
+    child_env = dict(os.environ)
+    child_env.pop("SECRETS_CONTEXT", None)
     for provider in MODEL_PROVIDERS:
         for field in ("api_key_env", "base_url_env"):
             name = provider.get(field)
@@ -48,7 +52,12 @@ def main():
             emitted.add(name)
             value = lookup.get(name.upper())
             if value:
-                print(f"export {name}={shlex.quote(str(value))}")
+                if run_command:
+                    child_env[name] = str(value)
+                else:
+                    print(f"export {name}={shlex.quote(str(value))}")
+    if run_command:
+        raise SystemExit(subprocess.call(run_command, env=child_env))
 
 
 if __name__ == "__main__":

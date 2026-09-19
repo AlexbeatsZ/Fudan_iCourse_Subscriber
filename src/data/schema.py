@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS lectures (
     transcript TEXT, summary TEXT,
     processed_at TEXT, emailed_at TEXT,
     error_msg TEXT, error_count INTEGER DEFAULT 0,
-    error_stage TEXT, summary_model TEXT,
+    error_stage TEXT, summary_model TEXT, transcript_segments TEXT,
     FOREIGN KEY (course_id) REFERENCES courses(course_id)
 );
 CREATE TABLE IF NOT EXISTS ppt_pages (
@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS meta (
 # Columns added to ``lectures`` after the v1 schema shipped.  Existing DBs
 # get them via ALTER TABLE in Database._init_tables / merge_db._ensure_schema.
 LECTURES_MIGRATION_COLUMNS: list[tuple[str, str]] = [
+    ("transcript_segments", "TEXT"),
     ("error_msg", "TEXT"),
     ("error_count", "INTEGER DEFAULT 0"),
     ("error_stage", "TEXT"),

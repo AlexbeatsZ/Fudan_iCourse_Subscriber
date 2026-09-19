@@ -1,6 +1,7 @@
 """SQLite storage for tracking courses and lectures."""
 
 import os
+import json
 import sqlite3
 import threading
 from datetime import datetime
@@ -214,11 +215,11 @@ class Database:
             rows = self.conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
-    def update_transcript(self, sub_id: str, transcript: str):
+    def update_transcript(self, sub_id: str, transcript: str, segments=None):
         with self._lock, self.conn:
             self.conn.execute(
-                "UPDATE lectures SET transcript = ? WHERE sub_id = ?",
-                (transcript, sub_id),
+                "UPDATE lectures SET transcript = ?, transcript_segments = COALESCE(?, transcript_segments) WHERE sub_id = ?",
+                (transcript, json.dumps(segments, ensure_ascii=False) if segments is not None else None, sub_id),
             )
 
     def mark_processed(self, sub_id: str):
