@@ -5,7 +5,8 @@ on:
     inputs:
       course_ids:
         description: "Comma-separated course IDs to process (e.g. 30004,30005)"
-        required: true
+        required: false
+        default: "40243,38135,37695,37543,37113,38016,41642"
         type: string
       use_official_transcript:
         description: "Use official iCourse transcripts instead of ASR"
@@ -161,16 +162,8 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ inputs.course_ids }}
+          COURSE_IDS: ${{ inputs.course_ids || '40243,38135,37695,37543,37113,38016,41642' }}
           USE_OFFICIAL_TRANSCRIPT: ${{ inputs.use_official_transcript && '1' || '' }}
-          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python -u main.py
 

@@ -308,10 +308,8 @@ def run():
     if corrected:
         print(f"  [Date] Synced {corrected} lecture date(s) from sub_title", flush=True)
     transcriber = Transcriber()
-    summarizer = Summarizer() if config.COURSE_IDS else None
-    emailer = Emailer() if (
-        config.SMTP_EMAIL and config.SMTP_PASSWORD
-    ) else None
+    summarizer = None
+    emailer = None
 
     client = ICourseClient(vpn)
     email_items: list = []

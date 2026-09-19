@@ -12,7 +12,9 @@ from replay_library import settings, ordered_lectures
 
 def main():
     config = settings()
-    config["courses"] = [v.strip() for v in os.environ.get("COURSE_IDS", "").split(",") if v.strip()]
+    env_courses = [v.strip() for v in os.environ.get("COURSE_IDS", "").split(",") if v.strip()]
+    if env_courses:
+        config["courses"] = env_courses
     if not config["courses"]:
         needed = False
     else:

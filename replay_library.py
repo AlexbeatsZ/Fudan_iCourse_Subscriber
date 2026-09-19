@@ -24,7 +24,7 @@ def default_destination():
 
 
 DEFAULT = {"destination": default_destination(), "fallback": str(Path.home()/"Downloads"/"iCourse"),
-           "repository": "AlexbeatsZ/Fudan_iCourse_Subscriber", "courses": ["37113"],
+           "repository": "AlexbeatsZ/Fudan_iCourse_Subscriber", "courses": ["40243", "38135", "37695", "37543", "37113", "38016", "41642"],
            "transfer_time": "22:00", "port": 8765}
 
 

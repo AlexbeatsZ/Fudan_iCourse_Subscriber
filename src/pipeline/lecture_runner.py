@@ -112,6 +112,16 @@ class LectureRunner:
                 return None
             return existing["summary"]
 
+        if self._summarizer is None and existing and existing.get("transcript_segments"):
+            self._reporter.info(
+                f"    Transcript exists ({len(existing.get('transcript', ''))} chars), "
+                f"summarizer disabled — skipping."
+            )
+            self._schedule_next(next_info)
+            self._db.mark_processed(sub_id)
+            self._db.clear_error(sub_id)
+            return None
+
         # ── Phase B — submit PPT pipeline (fetch + dedup, no OCR yet) ──
         # OCR is deferred (defer_ocr=True) so ASR in Phase D gets exclusive
         # CPU.  OCR will be submitted in Phase E (handle.drain()).
@@ -153,6 +163,15 @@ class LectureRunner:
             self._ppt.prefetch_and_ocr(self._client, next_course, next_sub)
 
         # ── Phase F — bucketed-prompt LLM summary ──────────────────────
+        if self._summarizer is None:
+            self._reporter.info("    LLM summarizer disabled, skipping summary.")
+            self._release_audio(sub_id)
+            self._db.mark_processed(sub_id)
+            self._db.clear_error(sub_id)
+            elapsed = time.time() - t_start
+            self._reporter.lecture_done(course_title, sub_title, elapsed)
+            return None
+
         if not transcript.strip():
             self._reporter.info("    Empty transcript, skipping summary.")
             self._release_audio(sub_id)

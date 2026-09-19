@@ -10,9 +10,17 @@
 - 2026-09-19: refreshed local player layout and enlarged captions, including approximately 2.5x previous fullscreen sizes at 1080p. Design: [player UI](docs/design/player-ui.md). Real lecture, narrow/desktop layout and both fullscreen presentations checked.
 - 2026-09-19: migrating download execution to ROG, GitHub retains recognition. See [ROG library design](docs/design/rog-library.md) before modifying storage/subtitle/scheduling. Credentials are ROG user environment variables FUDAN_STUID/FUDAN_UISPSW; never commit values. replay_library.py and desktop/ implement course folders, 第01节 naming, staging/verified transfer, VTT and local app.
 - Timed transcript persistence, merge and shard roundtrip added; 13 focused tests passed. Live deployment/old-library migration/cloud backfill acceptance in progress.
-- 仍待覆盖无 PPT、签名失效、重复图片回翻和批量多课次的真实边界验收。
-- 本地 AI/邮件尚需用户服务配置；保留功能，不主动发送邮件。
-- 用户已确认本机先验证视频和 PPT，AI/邮件稍后配置，后续考虑服务器。
+- 2026-09-19: 精简 GitHub Actions 工作流与本地任务：彻底停用自动 AI 总结（LLM）与邮件发送（SMTP），仅保留视频巡检、ASR 语音转录生成单行对轴字幕（SenseVoice）与 PPT 课件提取。
+- 2026-09-19: 定时调度调整为每天 4 次，对应北京时间 06:00, 12:00, 18:00, 24:00（UTC 22:00, 04:00, 10:00, 16:00），cron 为 `0 4,10,16,22 * * *`。
+- 固化订阅课程清单（共 7 门，写入代码与日志，防止 GitHub Secrets 变更限制导致编号遗失）：
+  1. `40243`: 生物化学B（周二/周四6-8节，共16节，已回放2节：657466, 662070）
+  2. `38135`: 无机化学（共16节，已回放2节：654850, 660009）
+  3. `37695`: 分子化学原理及应用(H)（共32节，已回放4节：654365, 654364, 658821, 658822）
+  4. `37543`: 计算机在化学中的应用（共31节，已回放2节：654197, 658557）
+  5. `37113`: 物理化学AⅢ（共24节，已回放3节：653729, 656695, 659248）
+  6. `38016`: 应用化学专业实验（共16节，已回放2节：654719, 659884）
+  7. `41642`: 科技实用英语写作（共11节，已回放2节：742683, 742890）
+- 用户要求：所有课程全量下载转存到本地（`E:\Videos`），并走 GitHub Actions 工作流生成 ASR 对轴字幕。
 
 # Build / Run / Test
 项目上一级的 uv 环境已有 requests、pycryptodome。运行 `..\.venv\Scripts\python.exe local_replay.py --help`。
