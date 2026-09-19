@@ -7,7 +7,7 @@
 已验证真实登录和课程 37113 枚举（24 节），课次 653729 已完整下载 1,773,490,386 字节视频并保存 34 个 PPT 时间事件和离线页面；中断后从 638,187,325 字节续传成功。serve 浏览器实测首/中/末事件跳到 0、4574、6386 秒，视频时长 6438.378833 秒。新增只监听本机且支持 Range 的 serve 命令供浏览器随机跳转。9 项单元测试通过。
 
 # Active Work
-- 2026-09-19: refreshed local player layout and enlarged captions, including approximately 2.5x previous fullscreen sizes at 1080p. Design: [player UI](docs/design/player-ui.md). Real lecture, narrow/desktop layout and both fullscreen presentations checked.
+- 2026-09-19: black minimal study workspace replaces blue card UI; unified video/PPT, shared toolbar, full-width transcript, secondary action menus and real resume progress. Enlarged captions retained; early-load resume overwrite fixed. Design: [player UI](docs/design/player-ui.md). Desktop/narrow layouts, subtitle seek, 34 PPT events, speed and reload/resume checked; 13 tests passed.
 - 2026-09-19: migrating download execution to ROG, GitHub retains recognition. See [ROG library design](docs/design/rog-library.md) before modifying storage/subtitle/scheduling. Credentials are ROG user environment variables FUDAN_STUID/FUDAN_UISPSW; never commit values. replay_library.py and desktop/ implement course folders, 第01节 naming, staging/verified transfer, VTT and local app.
 - Timed transcript persistence, merge and shard roundtrip added; 13 focused tests passed. Live deployment/old-library migration/cloud backfill acceptance in progress.
 - 2026-09-19: 精简 GitHub Actions 工作流与本地任务：彻底停用自动 AI 总结（LLM）与邮件发送（SMTP），仅保留视频巡检、ASR 语音转录生成单行对轴字幕（SenseVoice）与 PPT 课件提取。
