@@ -172,15 +172,30 @@ def download(config, only=None):
                 try:
                     if not video_complete(video):
                         print(f"下载 {detail['title']} {stem}", flush=True)
-                        check = client.vpn.get(client.base_url+"/courseapi/v3/portal-home-setting/get-sub-info",
-                                               params={"course_id": cid, "sub_id": sid}, timeout=30)
-                        check.raise_for_status()
-                        if check.json().get("code") != 0:
-                            raise RuntimeError("没有课次访问权限")
-                        url = client.get_video_url(cid, sid)
-                        if not url:
-                            raise RuntimeError("视频未就绪")
-                        download_video(client, url, video)
+                        max_dl_attempts = 5
+                        for dl_attempt in range(max_dl_attempts):
+                            try:
+                                if not client.check_alive():
+                                    print("  WebVPN 会话已过期，重新建立连接...", flush=True)
+                                    client = login()
+                                check = client.vpn.get(client.base_url+"/courseapi/v3/portal-home-setting/get-sub-info",
+                                                       params={"course_id": cid, "sub_id": sid}, timeout=30)
+                                check.raise_for_status()
+                                if check.json().get("code") != 0:
+                                    raise RuntimeError("没有课次访问权限")
+                                url = client.get_video_url(cid, sid)
+                                if not url:
+                                    raise RuntimeError("视频未就绪")
+                                download_video(client, url, video)
+                                break
+                            except Exception as dl_err:
+                                if video_complete(video):
+                                    break
+                                if dl_attempt < max_dl_attempts - 1:
+                                    print(f"  {stem} 中断 ({type(dl_err).__name__})，3秒后自动续传 (第 {dl_attempt+2}/{max_dl_attempts} 次尝试)...", flush=True)
+                                    time.sleep(3)
+                                else:
+                                    raise
                     assets = folder/(stem+".assets")
                     if not (assets/"timeline.json").exists():
                         assets.mkdir(exist_ok=True)
