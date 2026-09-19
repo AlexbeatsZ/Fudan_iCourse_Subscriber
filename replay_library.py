@@ -79,29 +79,30 @@ def ordered_lectures(lectures):
 
 def ensure_network_share():
     if os.name == "nt":
-        if Path(r"\\192.168.137.1\E").exists():
-            return
-        pwd = os.environ.get("OMEN_SMB_PASSWORD")
-        if not pwd:
-            import winreg
-            try:
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
-                    pwd, _ = winreg.QueryValueEx(key, "OMEN_SMB_PASSWORD")
-            except OSError:
-                pass
-        user = os.environ.get("OMEN_SMB_USER", "Meta")
-        cmd = ["net", "use", r"\\192.168.137.1\IPC$"]
-        if pwd:
-            cmd.extend([f"/user:{user}", pwd])
-        import subprocess
-        subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            pwd = os.environ.get("OMEN_SMB_PASSWORD")
+            if not pwd:
+                import winreg
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                        pwd, _ = winreg.QueryValueEx(key, "OMEN_SMB_PASSWORD")
+                except OSError:
+                    pass
+            user = os.environ.get("OMEN_SMB_USER", "Meta")
+            cmd = ["net", "use", r"\\192.168.137.1\IPC$"]
+            if pwd:
+                cmd.extend([f"/user:{user}", pwd])
+            import subprocess
+            subprocess.run(cmd, capture_output=True, text=True)
+        except Exception:
+            pass
 
 
 def writable(root):
     try:
-        # Do not create a missing mapped drive/share. Existing local parents are fine.
-        ensure_network_share()
         root = Path(root)
+        if str(root).startswith(r"\\") or str(root).lower().startswith(("z:", "d:", "e:")):
+            ensure_network_share()
         if not root.parent.exists():
             return False
         root.mkdir(exist_ok=True)
