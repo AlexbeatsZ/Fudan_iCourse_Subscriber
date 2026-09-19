@@ -146,14 +146,92 @@ def subtitle_text(segments):
     def stamp(ms):
         ms = round(ms)
         return f"{ms//3600000:02d}:{ms//60000%60:02d}:{ms//1000%60:02d}.{ms%1000:03d}"
+
+    def split_cues(text, start_ms, end_ms, max_len=26):
+        text = text.replace("\r", " ").replace("\n", " ").strip()
+        if not text:
+            return []
+        delimiters = r'([。！？!?；;\n]+|[，,、]+)'
+        tokens = re.split(delimiters, text)
+        raw_clauses = []
+        curr = ""
+        for tok in tokens:
+            if not tok:
+                continue
+            if re.match(delimiters, tok):
+                curr += tok
+                raw_clauses.append(curr.strip())
+                curr = ""
+            else:
+                curr += tok
+        if curr.strip():
+            raw_clauses.append(curr.strip())
+
+        chunks = []
+        buf = ""
+        for cl in raw_clauses:
+            if not cl:
+                continue
+            if not buf:
+                buf = cl
+            elif len(buf) + len(cl) <= max_len:
+                buf += cl
+            else:
+                if len(cl) <= 6 and len(buf) + len(cl) <= max_len + 4:
+                    buf += cl
+                else:
+                    chunks.append(buf)
+                    buf = cl
+        if buf:
+            if len(buf) <= 6 and chunks and len(chunks[-1]) + len(buf) <= max_len + 5:
+                chunks[-1] += buf
+            else:
+                chunks.append(buf)
+
+        cues_text = []
+        for ch in chunks:
+            while len(ch) > max_len + 4:
+                cues_text.append(ch[:max_len])
+                ch = ch[max_len:]
+            if ch:
+                cues_text.append(ch)
+
+        if not cues_text:
+            return []
+        if len(cues_text) == 1:
+            return [(start_ms, end_ms, cues_text[0])]
+
+        total_chars = sum(max(1, len(re.sub(r"[\s\W_]+", "", c)) or len(c)) for c in cues_text)
+        total_dur = end_ms - start_ms
+
+        results = []
+        curr_start = start_ms
+        for i, c in enumerate(cues_text):
+            if i == len(cues_text) - 1:
+                c_end = end_ms
+            else:
+                c_chars = max(1, len(re.sub(r"[\s\W_]+", "", c)) or len(c))
+                dur = (c_chars / total_chars) * total_dur
+                c_end = round(curr_start + dur)
+            if c_end <= curr_start:
+                c_end = curr_start + 100
+            results.append((curr_start, c_end, c))
+            curr_start = c_end
+        return results
+
     lines = ["WEBVTT", ""]
     for seg in sorted(segments, key=lambda s: s["start_ms"]):
         start, end = float(seg["start_ms"]), float(seg["end_ms"])
         if not all(math.isfinite(v) for v in (start, end)) or start < 0 or end <= start:
             raise ValueError("字幕时间无效")
-        text = html.escape(str(seg["text"])).replace("\r", " ").replace("\n", " ").strip()
-        if text:
-            lines.extend([f"{stamp(start)} --> {stamp(end)}", text, ""])
+        text = str(seg.get("text", "")).strip()
+        if not text:
+            continue
+        cues = split_cues(text, start, end)
+        for c_start, c_end, c_text in cues:
+            esc = html.escape(c_text).strip()
+            if esc:
+                lines.extend([f"{stamp(c_start)} --> {stamp(c_end)}", esc, ""])
     return "\n".join(lines) + "\n"
 
 
