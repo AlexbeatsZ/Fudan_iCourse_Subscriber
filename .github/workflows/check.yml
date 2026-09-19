@@ -37,7 +37,7 @@ jobs:
     needs: discover
     if: needs.discover.outputs.needed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -187,7 +187,7 @@ jobs:
 
       - name: Run
         id: pipeline
-        timeout-minutes: 350
+        timeout-minutes: 110
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
@@ -198,13 +198,11 @@ jobs:
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          # All secrets, JSON-encoded. provider_env.py exports only the
-          # vars named by config.MODEL_PROVIDERS (api_key_env /
-          # base_url_env), so user-defined providers with custom env-var
-          # names work without editing this workflow.
-          SECRETS_CONTEXT: ${{ toJSON(secrets) }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python scripts/provider_env.py python -u main.py
+          python -u main.py
 
       - name: Deploy database to data branch
         if: always() && (steps.pipeline.outcome == 'success' || steps.pipeline.outcome == 'failure')

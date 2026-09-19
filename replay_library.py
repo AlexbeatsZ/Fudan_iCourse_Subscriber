@@ -23,7 +23,7 @@ DEFAULT = {"destination": "\\\\192.168.137.1\\E\\Videos", "fallback": str(Path.h
 
 
 def read_json(path, default=None):
-    return json.loads(Path(path).read_text(encoding="utf-8")) if Path(path).exists() else default
+    return json.loads(Path(path).read_text(encoding="utf-8-sig")) if Path(path).exists() else default
 
 
 def settings():
@@ -77,9 +77,30 @@ def ordered_lectures(lectures):
     return list(seen.values())
 
 
+def ensure_network_share():
+    if os.name == "nt":
+        if Path(r"\\192.168.137.1\E").exists():
+            return
+        pwd = os.environ.get("OMEN_SMB_PASSWORD")
+        if not pwd:
+            import winreg
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                    pwd, _ = winreg.QueryValueEx(key, "OMEN_SMB_PASSWORD")
+            except OSError:
+                pass
+        user = os.environ.get("OMEN_SMB_USER", "Meta")
+        cmd = ["net", "use", r"\\192.168.137.1\IPC$"]
+        if pwd:
+            cmd.extend([f"/user:{user}", pwd])
+        import subprocess
+        subprocess.run(cmd, capture_output=True, text=True)
+
+
 def writable(root):
     try:
         # Do not create a missing mapped drive/share. Existing local parents are fine.
+        ensure_network_share()
         root = Path(root)
         if not root.parent.exists():
             return False
@@ -130,6 +151,7 @@ def subtitle_text(segments):
 
 
 def catalog(config):
+    ensure_network_share()
     result = []
     for root_index, root in enumerate(roots(config)):
         try:

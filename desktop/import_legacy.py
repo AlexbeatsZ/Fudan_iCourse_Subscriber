@@ -20,8 +20,12 @@ def main():
     target_root = Path(cfg["fallback"])
     target_root.mkdir(parents=True, exist_ok=True)
     client = login()
+    import tempfile, shutil
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+        temp_db = Path(tf.name)
     try:
-        with queue_lock(), closing(sqlite3.connect(args.source/"library.sqlite3")) as db:
+        shutil.copyfile(args.source/"library.sqlite3", temp_db)
+        with queue_lock(), closing(sqlite3.connect(temp_db)) as db:
             for cid, title in db.execute("SELECT id,title FROM courses"):
                 detail = client.get_course_detail(cid)
                 lectures = ordered_lectures(detail["lectures"])
@@ -47,6 +51,7 @@ def main():
                     write_json(assets/"timeline.json", pages)
                     print(f"Imported {cid}/{sid}: {stem}", flush=True)
     finally:
+        temp_db.unlink(missing_ok=True)
         client.vpn.session.close()
 
 
