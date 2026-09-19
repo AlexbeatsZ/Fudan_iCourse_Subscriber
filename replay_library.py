@@ -17,7 +17,13 @@ from local_replay import write_json
 
 BASE = Path(__file__).resolve().parent
 RUNTIME = BASE / "local-data" / "rog"
-DEFAULT = {"destination": "\\\\192.168.137.1\\E\\Videos", "fallback": str(Path.home()/"Downloads"/"iCourse"),
+def default_destination():
+    if Path(r"E:\Videos").exists():
+        return r"E:\Videos"
+    return r"\\192.168.137.1\E\Videos"
+
+
+DEFAULT = {"destination": default_destination(), "fallback": str(Path.home()/"Downloads"/"iCourse"),
            "repository": "AlexbeatsZ/Fudan_iCourse_Subscriber", "courses": ["37113"],
            "transfer_time": "22:00", "port": 8765}
 
@@ -156,6 +162,8 @@ def catalog(config):
     result = []
     for root_index, root in enumerate(roots(config)):
         try:
+            if not root.exists():
+                continue
             folders = sorted(root.iterdir())
         except OSError:
             continue
@@ -163,14 +171,14 @@ def catalog(config):
             if not folder.is_dir():
                 continue
             lessons = []
-            for video in sorted(folder.glob("第*节.mp4"), key=lambda p: int(re.search(r"\d+", p.stem)[0]) if re.search(r"\d+", p.stem) else 0):
-                match = re.fullmatch(r"第(\d+)节", video.stem)
-                if not match:
-                    continue
+            for video in sorted(folder.glob("*.mp4")):
+                match = re.search(r"第?(\d+)节?", video.stem)
+                num = int(match.group(1)) if match else 0
                 meta = read_json(folder/(video.stem+".lesson.json"), {})
-                lessons.append({"number": int(match[1]), "name": video.stem, "video": video.name,
+                lessons.append({"number": num, "name": video.stem, "video": video.name,
                                 "subtitle": video.with_suffix(".vtt").exists(), **meta})
             if lessons:
+                lessons.sort(key=lambda x: (x["number"] if x["number"] > 0 else 9999, x["name"]))
                 result.append({"root": root_index, "folder": folder.name, "title": folder.name,
                                "staged": root_index == 1, "lessons": lessons})
     return result
@@ -253,10 +261,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["download", "transfer", "subtitles", "status", "app", "setup"])
     parser.add_argument("--lesson")
+    parser.add_argument("--open", action="store_true", help="在浏览器中自动打开")
     args = parser.parse_args()
     if args.command == "app":
         from desktop.server import serve
-        serve()
+        serve(open_browser=args.open)
     elif args.command == "setup":
         import getpass
         from desktop.downloader import save_credentials

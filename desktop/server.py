@@ -33,11 +33,17 @@ def make_app(port=8765):
 
         def translate_path(self, path):
             parts = unquote(urlparse(path).path).split("/")
-            if len(parts) >= 4 and parts[1] == "media" and parts[2] in ("0", "1"):
-                root = roots(settings())[int(parts[2])].resolve()
-                target = root.joinpath(*parts[3:]).resolve()
-                if target.is_relative_to(root) and not any(p.startswith(".") for p in parts[3:]):
-                    return str(target)
+            if len(parts) >= 4 and parts[1] == "media":
+                try:
+                    root_idx = int(parts[2])
+                    all_roots = roots(settings())
+                    if 0 <= root_idx < len(all_roots):
+                        root = all_roots[root_idx].resolve()
+                        target = root.joinpath(*parts[3:]).resolve()
+                        if target.is_relative_to(root) and not any(p.startswith(".") for p in parts[3:]):
+                            return str(target)
+                except (ValueError, IndexError):
+                    pass
             return str(BASE/"desktop"/"__missing__")
 
         def do_GET(self):
@@ -133,9 +139,14 @@ def configured():
         return False
 
 
-def serve():
-    server = make_app(settings()["port"])
-    print(f"课程库：http://127.0.0.1:{server.server_port}", flush=True)
+def serve(open_browser=False):
+    port = settings()["port"]
+    server = make_app(port)
+    url = f"http://127.0.0.1:{server.server_port}"
+    print(f"课程库：{url}", flush=True)
+    if open_browser:
+        import webbrowser
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()
     finally:
