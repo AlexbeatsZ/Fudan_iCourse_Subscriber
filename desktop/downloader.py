@@ -11,7 +11,8 @@ import zipfile
 
 from local_replay import download_video, fetch_ppt, timeline, write_json
 from replay_library import (RUNTIME, read_json, course_folder, roots, writable,
-                            video_complete, lesson_stem, subtitle_text, ordered_lectures, catalog)
+                            ensure_network_share, video_complete, lesson_stem, subtitle_text,
+                            ordered_lectures, catalog)
 
 
 def credentials():
@@ -130,6 +131,7 @@ def sync_subtitles(config):
 
 
 def download(config, only=None):
+    ensure_network_share()
     client = login()
     errors = []
     try:
@@ -142,13 +144,16 @@ def download(config, only=None):
                 sid, stem = str(lecture["sub_id"]), lesson_stem(number)
                 folder = None
                 for root in roots(config):
-                    if not root.exists():
+                    try:
+                        if not root.exists():
+                            continue
+                        for candidate in root.glob("*/"+stem+".lesson.json"):
+                            m = read_json(candidate, {})
+                            if m.get("sub_id") == sid and m.get("course_id") == cid:
+                                folder = candidate.parent
+                                break
+                    except OSError:
                         continue
-                    for candidate in root.glob("*/"+stem+".lesson.json"):
-                        m = read_json(candidate, {})
-                        if m.get("sub_id") == sid and m.get("course_id") == cid:
-                            folder = candidate.parent
-                            break
                     if folder:
                         break
                 if folder is None:
