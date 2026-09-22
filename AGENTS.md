@@ -1,10 +1,12 @@
 # Goal
 保留上游完整订阅、转写、OCR、摘要、邮件和前端功能，在 Windows 本地增加视频下载与 PPT 联动回放。
+增加 eLearning 文件增量归档：当前课程可配置定时同步，往期课程一次性归档，保留平台文件目录层级并预留通知发送接口。
 
 # Current State
 上游完整克隆，基于 5492d55，工作分支 feat/local-replay-ppt 与 main 同步。origin 为 AlexbeatsZ/Fudan_iCourse_Subscriber，upstream 为 LeafCreeper/Fudan_iCourse_Subscriber。
 已移除 GitHub Actions 中的自动 AI 总结与邮件发送，仅保留 SenseVoice ASR 单行对轴字幕提取与分片入库。定时 cron 设为每日 06:00, 12:00, 18:00, 24:00 (UTC 22, 04, 10, 16)。
 本地播放器运行于 http://127.0.0.1:8765/，支持单行字幕分段（subtitle_text）与幻灯片专注模式（Z 放大/S 切换/字幕悬浮）。
+eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `E:\Documents\Elearning`。2026-09-22 已完成用户选择的 10 门往期课程一次性归档：157 个文件、2,253,721,442 字节，数据库和磁盘逐门一致，无历史断点/转存残留。设计见 [eLearning archive](docs/design/elearning-sync.md)。
 
 当前 7 门订阅课程在 `E:\Videos` 的状态（已 100% 全部就绪）：
 - `37113` 物理化学AⅢ: 3/3 节（全部就绪，在 `E:\Videos`）
@@ -33,14 +35,17 @@
   6. `38016`: 应用化学专业实验（共16节，已回放2节：654719, 659884）
   7. `41642`: 科技实用英语写作（共11节，已回放2节：742683, 742890）
 - 2026-09-20: 部署 ROG 持久断点续传器与自动跨机同步通道（persistent_downloader.py），所有完成课次即时拉取 SenseVoice 字幕并同步至 OMEN `E:\Videos`。
+- 2026-09-22: eLearning 当前课程轮询、公告/讯息事件队列、可恢复文件发布和历史课程一次性归档完成；历史 10 门经真实下载及三轮断点续传验收，当前定时订阅未被历史课程污染。
 
 # Build / Run / Test
 项目上一级的 uv 环境已有 requests、pycryptodome。运行 `..\.venv\Scripts\python.exe local_replay.py --help`。
 完整上游依赖见 requirements.txt，新增下载入口只需 requests、pycryptodome。
 测试：`..\.venv\Scripts\python.exe -m unittest test_local_replay -v`。
+eLearning 测试：`..\.venv\Scripts\python.exe -X utf8 -m unittest test_elearning -v`（8 项）；操作说明见 [ELEARNING.md](ELEARNING.md)。
 
 # Durable Lessons
 本机环境代理 7897 曾导致 WebVPN TLS EOF；同一 URL 用 requests trust_env=False 直连正常返回 302 登录跳转。本地入口默认直连 WebVPN，支持 --proxy 显式覆盖。不能据脚本代理失败推断用户浏览器或 WebVPN 网站不可用。
 WebVPN 偶尔会在票据请求返回 HTTP 200 后仍未形成可用会话；上游主流程按 10 次重新登录处理，本地入口保持相同上限。
 平台 created_sec 是 PPT 相对视频秒数。时间 0 有效；回翻页需要保留多次时间事件，不能直接使用 OCR 去重后的集合。
 PPT API 可能返回已经过 WebVPN 编码的图片 URL；此时必须使用 get_raw，不能再次 get_vpn_url 编码。
+一次性 eLearning 历史归档必须与当前课程 `sync` 分开执行；使用 `sync && archive` 会在前者出现暂时性文件传输错误时完全跳过历史归档。验收需同时对齐平台文件数、SQLite 记录、目标盘文件/字节与暂存残留。
