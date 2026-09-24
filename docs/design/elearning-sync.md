@@ -1,7 +1,7 @@
 # eLearning archive design
 
 ## Scope
-Poll selected active Canvas courses into E:\Documents\Elearning. Preserve the platform Files hierarchy below one directory per course. Historical courses use a separate one-shot archive command and never change recurring subscriptions. Gather announcements and inbox changes; notification sending is an explicit extension, disabled during polling.
+Poll selected active Canvas courses into D:\Documents\Elearning. Preserve the platform Files hierarchy below one directory per course. Historical courses use a separate one-shot archive command and never change recurring subscriptions. Gather announcements and inbox changes; notification sending is an explicit extension, disabled during polling.
 
 ## Ownership and recovery
 - Fudan direct CAS login uses the existing IDP authentication primitives and user environment variables; session cookies and signed URLs stay in memory.

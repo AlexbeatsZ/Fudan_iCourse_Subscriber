@@ -11,7 +11,7 @@ import shutil
 import sqlite3
 import uuid
 
-DEFAULT = {"destination": r"E:\Documents\Elearning", "courses": [],
+DEFAULT = {"destination": r"D:\Documents\Elearning", "courses": [],
            "times": ["00:00", "06:00", "12:00", "18:00"],
            "messages": True, "announcements": True}
 

@@ -25,7 +25,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File desktop\install-elearning-ta
 
 ROG 的 Python 位于仓库内 `.venv\Scripts\python.exe`。安装的 `eLearning Sync` 任务在登录用户会话中每天四次执行，错过后补跑，失败后间隔 15 分钟重试两次。`desktop/run-elearning.ps1` 保存轮转日志至 `local-data/elearning/sync.log`。
 
-配置：`local-data/elearning/settings.json`。默认目的地 `E:\Documents\Elearning`，ROG 部署使用同一磁盘的 UNC 地址 `\\192.168.137.1\E\Documents\Elearning`，避免后台会话没有 E 盘映射。不要在两台机器同时运行针对同一目标的同步器。
+配置：`local-data/elearning/settings.json`。默认目的地 `D:\Documents\Elearning`，ROG 部署使用同一磁盘的 UNC 地址 `\\192.168.137.1\D\Documents\Elearning`，避免后台会话没有 D 盘映射。不要在两台机器同时运行针对同一目标的同步器。
 
 每门课程一个目录，里面按平台“文件”的文件夹层级归档。非法 Windows 字符替换为下划线，同名冲突加编号。下载先写项目 `local-data/elearning/staging`，完整后复制、核对字节并发布。更新之前的内容保留到目标 `.elearning/history`；平台删除文件或取消订阅不会删除已有资料。平台锁定/隐藏的文件不下载。名字映射保持稳定；平台重命名既有文件时保留首次归档名称，移动到另一文件夹会在新位置保存，旧路径保留。
 

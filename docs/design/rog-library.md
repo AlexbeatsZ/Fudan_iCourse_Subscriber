@@ -6,7 +6,7 @@ GitHub Actions discovers courses hourly and runs SenseVoice/OCR/summary only whe
 ## Storage and credentials
 - ROG project: `C:\Users\Meta\Project\Workspaces\icourse`.
 - Persistent user environment variables: `FUDAN_STUID`, `FUDAN_UISPSW`. Read HKCU Environment on each operation so edits take effect without restarting Explorer. GitHub retains `STUID`, `UISPSW`; local edits do not update GitHub Secrets.
-- Target: `E:\Videos`, backed by `\\192.168.137.1\E\Videos`; use UNC for background work. Maps Z/D/E to OMEN C/D/E; Windows Credential Manager owns SMB credentials.
+- Target: `D:\Videos`, backed by `\\192.168.137.1\D\Videos`; use UNC for background work. ROG's existing Z/D/E mappings are left untouched while the dock is unavailable; Windows Credential Manager owns SMB credentials.
 - Download first to `Downloads\iCourse\<course title>\第01节.mp4`, then transfer completed lectures to target. No mandatory wait for OCR or subtitles.
 - Copy into a `.transfer` file, flush, byte-compare, rename, and only then remove source. Conflicting existing target content is preserved and reported. Unavailable network storage never removes staged video.
 - Number chronological deduplicated course sessions (including not-yet-playable sessions), zero-pad to at least two digits. Do not overwrite an existing different sub_id when upstream order changes.

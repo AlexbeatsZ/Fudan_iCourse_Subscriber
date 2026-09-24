@@ -18,9 +18,9 @@ from local_replay import write_json
 BASE = Path(__file__).resolve().parent
 RUNTIME = BASE / "local-data" / "rog"
 def default_destination():
-    if Path(r"E:\Videos").exists():
-        return r"E:\Videos"
-    return r"\\192.168.137.1\E\Videos"
+    if Path(r"D:\Videos").exists():
+        return r"D:\Videos"
+    return r"\\192.168.137.1\D\Videos"
 
 
 DEFAULT = {"destination": default_destination(), "fallback": str(Path.home()/"Downloads"/"iCourse"),

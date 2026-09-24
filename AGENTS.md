@@ -6,19 +6,21 @@
 上游完整克隆，基于 5492d55，工作分支 feat/local-replay-ppt 与 main 同步。origin 为 AlexbeatsZ/Fudan_iCourse_Subscriber，upstream 为 LeafCreeper/Fudan_iCourse_Subscriber。
 已移除 GitHub Actions 中的自动 AI 总结与邮件发送，仅保留 SenseVoice ASR 单行对轴字幕提取与分片入库。定时 cron 设为每日 06:00, 12:00, 18:00, 24:00 (UTC 22, 04, 10, 16)。
 本地播放器运行于 http://127.0.0.1:8765/，支持单行字幕分段（subtitle_text）与幻灯片专注模式（Z 放大/S 切换/字幕悬浮）。
-eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `E:\Documents\Elearning`。2026-09-22 已完成用户选择的 10 门往期课程一次性归档：157 个文件、2,253,721,442 字节，数据库和磁盘逐门一致，无历史断点/转存残留。设计见 [eLearning archive](docs/design/elearning-sync.md)。
+eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `D:\Documents\Elearning`。2026-09-22 已完成用户选择的 10 门往期课程一次性归档：157 个文件、2,253,721,442 字节，数据库和磁盘逐门一致，无历史断点/转存残留。设计见 [eLearning archive](docs/design/elearning-sync.md)。
 
-当前 7 门订阅课程在 `E:\Videos` 的状态（已 100% 全部就绪）：
-- `37113` 物理化学AⅢ: 3/3 节（全部就绪，在 `E:\Videos`）
-- `38135` 无机化学: 2/2 节（全部就绪，在 `E:\Videos`）
-- `40243` 生物化学B: 2/2 节（全部就绪，在 `E:\Videos`）
-- `41642` 科技实用英语写作: 2/2 节（全部就绪，在 `E:\Videos`）
-- `38016` 应用化学专业实验: 2/2 节（全部就绪，在 `E:\Videos`）
-- `37695` 分子化学原理及应用(H): 4/4 节（全部就绪，在 `E:\Videos`）
-- `37543` 计算机在化学中的应用: 2/2 节（全部就绪，在 `E:\Videos`）
+当前 7 门订阅课程在 `D:\Videos` 的状态（已 100% 全部就绪）：
+- `37113` 物理化学AⅢ: 3/3 节（全部就绪，在 `D:\Videos`）
+- `38135` 无机化学: 2/2 节（全部就绪，在 `D:\Videos`）
+- `40243` 生物化学B: 2/2 节（全部就绪，在 `D:\Videos`）
+- `41642` 科技实用英语写作: 2/2 节（全部就绪，在 `D:\Videos`）
+- `38016` 应用化学专业实验: 2/2 节（全部就绪，在 `D:\Videos`）
+- `37695` 分子化学原理及应用(H): 4/4 节（全部就绪，在 `D:\Videos`）
+- `37543` 计算机在化学中的应用: 2/2 节（全部就绪，在 `D:\Videos`）
 全量 17 节录像视频（~33.5 GB）、高精度单行对轴 VTT 字幕、课件切片与时间轴全量入盘，本地播放器可无缝点播。
 
 # Active Work
+- 2026-09-24: E: 的 2907 个文件已复制到 D:，Robocopy 只读差异检查为 0 漏拷/失败；E: 保留迁移前副本作备份。播放器和归档目标改为 D:。ROG 旧直连映射按用户要求保持原样，远程读写待扩展坞恢复后验收。
+
 - 2026-09-19: added hover/focus/touch PPT previous/next controls (including lightbox), synchronized video seeking and bottom alignment space.
 - 2026-09-19: PPT captions now appear only in slide-focus mode and fullscreen lightbox; normal split view hides the caption strip entirely.
 - 2026-09-19: black minimal study workspace replaces blue card UI; unified video/PPT, shared toolbar, full-width transcript, secondary action menus and real resume progress. Enlarged captions retained; early-load resume overwrite fixed. Design: [player UI](docs/design/player-ui.md). Desktop/narrow layouts, subtitle seek, 34 PPT events, speed and reload/resume checked; 13 tests passed.
