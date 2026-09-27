@@ -262,25 +262,90 @@ def catalog(config):
     return result
 
 
-def copy_verified(source, target):
-    """Never replace unrelated content; byte-compare before clearing source."""
-    import filecmp
+def copy_size_checked(source, target):
+    """Accept an existing same-name, same-size file; preserve size conflicts."""
+    size = source.stat().st_size
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        if not filecmp.cmp(source, target, shallow=False):
-            raise FileExistsError("目标存在不同内容，未覆盖")
-        return
     temp = target.with_name(target.name+".transfer")
-    with source.open("rb") as inp, temp.open("wb") as out:
-        shutil.copyfileobj(inp, out, 4*1024*1024)
-        out.flush(); os.fsync(out.fileno())
-    if not filecmp.cmp(source, temp, shallow=False):
-        raise OSError("转存校验失败，保留暂存文件")
-    temp.replace(target)
+    temp.unlink(missing_ok=True)
+    if target.exists():
+        if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
+            raise FileExistsError("目标不是普通文件或文件大小不同，未覆盖")
+        return
+    try:
+        with source.open("rb") as inp, temp.open("wb") as out:
+            shutil.copyfileobj(inp, out, 4*1024*1024)
+            out.flush(); os.fsync(out.fileno())
+        if temp.stat().st_size != size:
+            raise OSError("转存文件大小不符，保留源文件")
+        temp.replace(target)
+    except Exception:
+        with contextlib.suppress(OSError):
+            temp.unlink(missing_ok=True)
+        raise
+
+
+def remove_empty_staged_courses(fallback):
+    """Remove only empty staging folders and their regenerable course metadata."""
+    if not fallback.is_dir():
+        return
+    for source in fallback.iterdir():
+        if not source.is_dir() or source.is_symlink():
+            continue
+        contents = list(source.iterdir())
+        if not contents:
+            source.rmdir()
+        elif len(contents) == 1 and contents[0].name == "course.json" and not contents[0].is_symlink():
+            try:
+                metadata = read_json(contents[0], {})
+            except (OSError, ValueError):
+                continue
+            if isinstance(metadata, dict) and metadata.get("course_id"):
+                contents[0].unlink()
+                source.rmdir()
+    if not any(fallback.iterdir()):
+        fallback.rmdir()
+
+
+def discard_incomplete_staging(fallback):
+    """ROG downloads restart from zero; keep only completed lesson content."""
+    if not fallback.is_dir():
+        return
+    for source in fallback.iterdir():
+        if not source.is_dir() or source.is_symlink():
+            continue
+        incomplete = {p.name[:-len(".mp4.part")] for p in source.glob("*.mp4.part")}
+        incomplete.update(p.name[:-len(".mp4.json")] for p in source.glob("*.mp4.json")
+                          if not p.with_suffix("").exists())
+        incomplete.update(p.name[:-len(".lesson.json")] for p in source.glob("*.lesson.json")
+                          if not (source/(p.name[:-len(".lesson.json")]+".mp4")).exists())
+        for partial in source.rglob("*.part"):
+            if partial.is_file() and not partial.is_symlink():
+                partial.unlink()
+        for pattern in ("*.mp4.part.invalid-*", "*.mp4.json.invalid-*"):
+            for stale in source.glob(pattern):
+                if stale.is_file() and not stale.is_symlink():
+                    stale.unlink()
+        for stem in incomplete:
+            if (source/(stem+".mp4")).exists():
+                continue
+            (source/(stem+".mp4.json")).unlink(missing_ok=True)
+            (source/(stem+".lesson.json")).unlink(missing_ok=True)
+            (source/(stem+".vtt")).unlink(missing_ok=True)
+            assets = source/(stem+".assets")
+            if assets.is_dir() and not assets.is_symlink():
+                if not assets.resolve().is_relative_to(fallback.resolve()):
+                    raise ValueError("课件暂存路径越界")
+                shutil.rmtree(assets)
+        for assets in source.glob("*.assets"):
+            if assets.is_dir() and not assets.is_symlink() and not any(assets.iterdir()):
+                assets.rmdir()
 
 
 def transfer(config):
     target_root, fallback = roots(config)
+    discard_incomplete_staging(fallback)
+    remove_empty_staged_courses(fallback)
     if not writable(target_root):
         print("网络盘不可达，视频继续保留在下载文件夹", flush=True)
         return 0
@@ -302,13 +367,22 @@ def transfer(config):
             if assets.exists():
                 files += [p for p in assets.rglob("*") if p.is_file() and not p.name.endswith((".part", ".tmp"))]
             for file in files:
-                copy_verified(file, target/file.relative_to(source))
+                destination = target/file.relative_to(source)
+                if file.name == stem+".mp4.json" and destination.exists():
+                    destination.with_name(destination.name+".transfer").unlink(missing_ok=True)
+                    saved = read_json(destination, {})
+                    if not (isinstance(saved, dict) and saved.get("complete")
+                            and saved.get("total") == (source/(stem+".mp4")).stat().st_size):
+                        raise FileExistsError("目标视频下载记录与文件大小不符，未覆盖")
+                    continue
+                copy_size_checked(file, destination)
             # Every file in this lesson is durable before deleting any source file.
             for file in files:
                 file.unlink()
             if assets.exists() and not any(assets.iterdir()):
                 assets.rmdir()
             moved += 1
+    remove_empty_staged_courses(fallback)
     return moved
 
 
@@ -317,6 +391,8 @@ def run(command, only=None):
     with queue_lock():
         if command == "download":
             from desktop.downloader import download, sync_subtitles
+            discard_incomplete_staging(Path(config["fallback"]))
+            remove_empty_staged_courses(Path(config["fallback"]))
             errors = download(config, only)
             try:
                 transfer(config)

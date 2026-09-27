@@ -130,6 +130,12 @@ def sync_subtitles(config):
     return count
 
 
+def discard_partial_video(video):
+    video.with_suffix(".mp4.part").unlink(missing_ok=True)
+    if not video.exists():
+        video.with_suffix(".mp4.json").unlink(missing_ok=True)
+
+
 def download(config, only=None):
     ensure_network_share()
     client = login()
@@ -169,8 +175,10 @@ def download(config, only=None):
                 write_json(record, {"course_id": cid, "sub_id": sid, "number": number,
                                     "date": lecture.get("date", ""), "title": lecture.get("sub_title", "")})
                 video = folder/(stem+".mp4")
+                assets = folder/(stem+".assets")
                 try:
                     if not video_complete(video):
+                        discard_partial_video(video)
                         print(f"下载 {detail['title']} {stem}", flush=True)
                         max_dl_attempts = 5
                         for dl_attempt in range(max_dl_attempts):
@@ -191,12 +199,12 @@ def download(config, only=None):
                             except Exception as dl_err:
                                 if video_complete(video):
                                     break
+                                discard_partial_video(video)
                                 if dl_attempt < max_dl_attempts - 1:
-                                    print(f"  {stem} 中断 ({type(dl_err).__name__})，3秒后自动续传 (第 {dl_attempt+2}/{max_dl_attempts} 次尝试)...", flush=True)
+                                    print(f"  {stem} 中断 ({type(dl_err).__name__})，清理片段后重新下载 (第 {dl_attempt+2}/{max_dl_attempts} 次尝试)...", flush=True)
                                     time.sleep(3)
                                 else:
                                     raise
-                    assets = folder/(stem+".assets")
                     if not (assets/"timeline.json").exists():
                         assets.mkdir(exist_ok=True)
                         pages = timeline(client.get_ppt_list(cid, sid))
@@ -209,8 +217,16 @@ def download(config, only=None):
                             page.pop("url", None)
                         write_json(assets/"timeline.json", pages)
                 except Exception as e:
+                    discard_partial_video(video)
+                    if assets.exists():
+                        for partial in assets.glob("*.part"):
+                            partial.unlink()
+                        if not any(assets.iterdir()):
+                            assets.rmdir()
+                    if not video.exists():
+                        record.unlink(missing_ok=True)
                     errors.append(f"{stem}: {type(e).__name__}")
-                    print(f"{stem} 暂未完成，保留文件供下次重试 ({type(e).__name__})", flush=True)
+                    print(f"{stem} 暂未完成，已清理不完整片段 ({type(e).__name__})", flush=True)
     finally:
         client.vpn.session.close()
     return errors

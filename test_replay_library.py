@@ -44,8 +44,90 @@ class LibraryTests(unittest.TestCase):
             self.assertTrue((src/(stem+".mp4")).exists())
             (dst/(stem+".mp4")).unlink()
             self.assertEqual(lib.transfer(cfg), 1)
-            self.assertFalse((src/(stem+".mp4")).exists())
+            self.assertFalse(src.exists())
+            self.assertFalse((root/"downloads").exists())
             self.assertEqual((dst/(stem+".mp4")).read_bytes(), b"video content")
+
+    def test_transfer_accepts_existing_same_size_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = {"destination": str(root/"network"), "fallback": str(root/"downloads")}
+            src = lib.course_folder(root/"downloads", "Course", "1")
+            dst = lib.course_folder(root/"network", "Course", "1")
+            stem = lib.lesson_stem(1)
+            (src/(stem+".mp4")).write_bytes(b"source")
+            lib.write_json(src/(stem+".mp4.json"), {"complete": True, "total": 6})
+            (dst/(stem+".mp4")).write_bytes(b"target")
+            lib.write_json(dst/(stem+".mp4.json"), {"complete": True, "total": 6,
+                                                     "validator": "older record text"})
+            (dst/(stem+".mp4.transfer")).write_bytes(b"stale")
+            (dst/(stem+".mp4.json.transfer")).write_bytes(b"stale")
+
+            self.assertEqual(lib.transfer(cfg), 1)
+            self.assertFalse(src.exists())
+            self.assertEqual((dst/(stem+".mp4")).read_bytes(), b"target")
+            self.assertFalse((dst/(stem+".mp4.transfer")).exists())
+            self.assertFalse((dst/(stem+".mp4.json.transfer")).exists())
+
+    def test_transfer_clears_incomplete_staging_but_preserves_complete_video_offline(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = {"destination": str(root/"network"), "fallback": str(root/"downloads")}
+            old = lib.course_folder(root/"downloads", "Old", "1")
+            pending = lib.course_folder(root/"downloads", "Pending", "2")
+            (pending/"第01节.mp4.part").write_bytes(b"partial")
+            lib.write_json(pending/"第01节.mp4.json", {"complete": False, "total": 9})
+            lib.write_json(pending/"第01节.lesson.json", {"course_id": "2", "sub_id": "3"})
+            (pending/"第01节.vtt").write_text("WEBVTT\n")
+            assets = pending/"第01节.assets"
+            assets.mkdir()
+            (assets/"00001.jpg.part").write_bytes(b"partial slide")
+            complete = lib.course_folder(root/"downloads", "Complete", "3")
+            (complete/"第01节.mp4").write_bytes(b"complete")
+            lib.write_json(complete/"第01节.mp4.json", {"complete": True, "total": 8})
+
+            with patch.object(lib, "writable", return_value=False):
+                self.assertEqual(lib.transfer(cfg), 0)
+            self.assertFalse(old.exists())
+            self.assertFalse(pending.exists())
+            self.assertTrue((complete/"第01节.mp4").exists())
+
+            self.assertEqual(lib.transfer(cfg), 1)
+            self.assertFalse((root/"downloads").exists())
+            self.assertEqual((root/"network"/"Complete"/"第01节.mp4").read_bytes(), b"complete")
+
+    def test_failed_copy_removes_transfer_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root/"video.mp4"
+            source.write_bytes(b"complete")
+            target = root/"network"/"video.mp4"
+            with patch.object(lib.shutil, "copyfileobj", side_effect=OSError("interrupted")):
+                with self.assertRaises(OSError):
+                    lib.copy_size_checked(source, target)
+            self.assertTrue(source.exists())
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_name("video.mp4.transfer").exists())
+
+    def test_rog_failed_download_discards_partial_but_keeps_complete_video(self):
+        from desktop.downloader import discard_partial_video
+        with tempfile.TemporaryDirectory() as td:
+            video = Path(td)/"第01节.mp4"
+            part = video.with_suffix(".mp4.part")
+            record = video.with_suffix(".mp4.json")
+            part.write_bytes(b"partial")
+            lib.write_json(record, {"complete": False, "total": 100})
+            discard_partial_video(video)
+            self.assertFalse(part.exists())
+            self.assertFalse(record.exists())
+
+            video.write_bytes(b"complete")
+            part.write_bytes(b"stale")
+            lib.write_json(record, {"complete": True, "total": 8})
+            discard_partial_video(video)
+            self.assertEqual(video.read_bytes(), b"complete")
+            self.assertTrue(record.exists())
+            self.assertFalse(part.exists())
 
     def test_transcript_survives_db_merge_and_encrypted_shards(self):
         with tempfile.TemporaryDirectory() as td:
