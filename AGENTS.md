@@ -11,6 +11,7 @@ eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `D:\Docume
 截至 2026-09-28，本机 `D:\Videos` 的 7 门订阅课程有 27 节视频、27 个课件目录、19 份 VTT 字幕；新增录像的字幕尚未全部生成。课程对应数量：物理化学AⅢ 5、生物化学B 3、量子化学原理及应用(H) 6、人工智能在化学中的应用 3、应用化学专题 4、无机化学 4、数智化实用英文写作 2。
 
 # Active Work
+- 2026-10-01: 本机播放器已拆分部署到 `C:\Portable Programs\iCourse Player`，使用独立 Python 3.13.16 便携运行时和标准库服务，保留原播放界面、字幕/PPT 联动和同浏览器学习进度；本机播放不再依赖开发项目及其虚拟环境。部署源码与导出器在 `portable/`，设计见 [Portable player](docs/design/portable-player.md)。
 - 2026-09-28: ROG 下载和转存逻辑已改为同名文件按大小判断，大小冲突报错并保留源与目标；`.transfer` 失败即清理，自动下载失败清理不完整片段并从头重试。三门课程共 14 节视频及 14 个课件目录已在本机 `D:\Videos`，ROG `Downloads\iCourse` 已清空并移除。设计见 [ROG library](docs/design/rog-library.md)。
 - 2026-09-24: E: 的 2907 个文件已复制到 D:，Robocopy 只读差异检查为 0 漏拷/失败；E: 保留迁移前副本作备份。播放器和归档目标改为 D:。ROG 旧直连映射按用户要求保持原样，远程读写待扩展坞恢复后验收。
 
@@ -33,6 +34,7 @@ eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `D:\Docume
 - 2026-09-22: eLearning 当前课程轮询、公告/讯息事件队列、可恢复文件发布和历史课程一次性归档完成；历史 10 门经真实下载及三轮断点续传验收，当前定时订阅未被历史课程污染。
 
 # Build / Run / Test
+独立播放器：双击 `C:\Portable Programs\iCourse Player\启动播放器.vbs`；退出后台服务使用同目录 `停止播放器.vbs`。默认读取 `D:\Videos`。便携部署测试：`uv run --no-project --python ..\.venv\Scripts\python.exe python -m unittest test_portable_player -v`（5 项）；导出及运行时说明见 `docs/design/portable-player.md`。
 项目上一级的 uv 环境已有 requests、pycryptodome。运行 `..\.venv\Scripts\python.exe local_replay.py --help`。
 完整上游依赖见 requirements.txt，新增下载入口只需 requests、pycryptodome。
 测试：`..\.venv\Scripts\python.exe -m unittest test_local_replay -v`。
