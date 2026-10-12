@@ -136,13 +136,35 @@ def discard_partial_video(video):
         video.with_suffix(".mp4.json").unlink(missing_ok=True)
 
 
+def course_detail_with_retry(client, cid):
+    """A stale/non-JSON course response must not abort the entire subscribed batch."""
+    import requests
+    for attempt in range(3):
+        try:
+            return client, client.get_course_detail(cid)
+        except requests.exceptions.JSONDecodeError:
+            if attempt == 2:
+                client.vpn.session.close()
+                raise
+            client.vpn.session.close()
+            client = login()
+
+
 def download(config, only=None):
-    ensure_network_share()
+    try:
+        ensure_network_share(config["destination"])
+    except OSError:
+        print("目标共享暂不可达，视频先保留在本机下载目录", flush=True)
     client = login()
     errors = []
     try:
         for cid in config["courses"]:
-            detail = client.get_course_detail(cid)
+            try:
+                client, detail = course_detail_with_retry(client, cid)
+            except Exception as error:
+                errors.append(f"课程 {cid}: {type(error).__name__}")
+                print(f"课程 {cid} 枚举未完成 ({type(error).__name__})", flush=True)
+                continue
             listing = ordered_lectures(detail["lectures"])
             for number, lecture in enumerate(listing, 1):
                 if not lecture.get("has_playback") or (only and str(lecture["sub_id"]) != only):
@@ -216,6 +238,10 @@ def download(config, only=None):
                             page["file"] = target.name
                             page.pop("url", None)
                         write_json(assets/"timeline.json", pages)
+                    # Publish each completed lecture while the batch still owns its
+                    # queue lock; hours of later downloads must not delay Mac copies.
+                    from replay_library import transfer
+                    transfer(config)
                 except Exception as e:
                     discard_partial_video(video)
                     if assets.exists():

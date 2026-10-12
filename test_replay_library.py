@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock, MagicMock
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
@@ -16,6 +16,60 @@ from src.data.sharder import shard_database, load_index, reassemble_database
 
 
 class LibraryTests(unittest.TestCase):
+    def test_default_destination_does_not_touch_a_broken_mapped_drive(self):
+        kernel = Mock()
+        kernel.kernel32.GetDriveTypeW.return_value = 4
+        with patch.object(lib.os, "name", "nt"), patch("ctypes.windll", kernel, create=True), patch.object(lib, "Path") as path:
+            self.assertEqual(lib.default_destination(), r"\\192.168.137.1\D\Videos")
+        path.assert_not_called()
+
+    def test_smb_auth_uses_configured_server_without_decoding_console_output(self):
+        registry = MagicMock()
+        registry.QueryValueEx.return_value = ("current-test-secret", 1)
+        with patch.object(lib.os, "name", "nt"), patch.object(lib.os.path, "isdir", return_value=False), patch.dict("sys.modules", {"winreg": registry}), patch.dict(lib.os.environ, {"OMEN_SMB_PASSWORD": "stale-test-only"}), patch("subprocess.run", return_value=Mock(returncode=0)) as run:
+            lib.ensure_network_share(r"\\192.168.137.1\D\Videos")
+        self.assertIn(r"\\192.168.137.1\IPC$", run.call_args.args[0])
+        self.assertEqual(run.call_args.args[0][-1], "current-test-secret")
+        self.assertNotIn("text", run.call_args.kwargs)
+
+    def test_existing_smb_session_is_not_reauthenticated(self):
+        with patch.object(lib.os, "name", "nt"), patch.object(lib.os.path, "isdir", return_value=True), patch("subprocess.run") as run:
+            lib.ensure_network_share(r"\\192.168.137.1\D\Videos")
+        run.assert_not_called()
+
+    def test_non_json_course_response_refreshes_session(self):
+        import requests
+        from desktop.downloader import course_detail_with_retry
+        stale, fresh = Mock(), Mock()
+        stale.get_course_detail.side_effect = requests.exceptions.JSONDecodeError("invalid response", "", 0)
+        fresh.get_course_detail.return_value = {"title": "Course", "lectures": []}
+        with patch("desktop.downloader.login", return_value=fresh):
+            client, detail = course_detail_with_retry(stale, "1")
+        self.assertIs(client, fresh)
+        self.assertEqual(detail["lectures"], [])
+        stale.vpn.session.close.assert_called_once()
+
+    def test_share_auth_failure_keeps_staged_lecture_available(self):
+        from desktop.downloader import download
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = {"destination": str(root/"offline"), "fallback": str(root/"downloads"), "courses": ["1"]}
+            course = lib.course_folder(root/"downloads", "Course", "1")
+            video = course/"第01节.mp4"
+            video.write_bytes(b"complete")
+            lib.write_json(video.with_suffix(".mp4.json"), {"complete": True, "total": 8})
+            lib.write_json(course/"第01节.lesson.json", {"course_id": "1", "sub_id": "2"})
+            assets = course/"第01节.assets"
+            assets.mkdir()
+            lib.write_json(assets/"timeline.json", [])
+            client = Mock()
+            client.get_course_detail.return_value = {"title": "Course", "lectures": [{"sub_id": "2", "has_playback": True}]}
+            with patch("desktop.downloader.ensure_network_share", side_effect=OSError("offline")), patch("desktop.downloader.login", return_value=client), patch.object(lib, "writable", return_value=False):
+                self.assertEqual(download(cfg), [])
+            with patch.object(lib, "ensure_network_share", side_effect=OSError("offline")):
+                self.assertEqual(lib.catalog(cfg)[0]["root"], 1)
+            self.assertEqual(video.read_bytes(), b"complete")
+
     def test_number_and_subtitle_timing(self):
         self.assertEqual(lib.lesson_stem(1), "第01节")
         self.assertEqual(lib.lesson_stem(11), "第11节")

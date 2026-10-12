@@ -6,7 +6,7 @@ GitHub Actions discovers courses hourly and runs SenseVoice/OCR/summary only whe
 ## Storage and credentials
 - ROG project: `C:\Users\Meta\Project\Workspaces\icourse`.
 - Persistent user environment variables: `FUDAN_STUID`, `FUDAN_UISPSW`. Read HKCU Environment on each operation so edits take effect without restarting Explorer. GitHub retains `STUID`, `UISPSW`; local edits do not update GitHub Secrets.
-- Target: `D:\Videos`, backed by `\\192.168.137.1\D\Videos`; use UNC for background work. ROG's existing Z/D/E mappings are left untouched while the dock is unavailable; Windows Credential Manager owns SMB credentials.
+- Target: `D:\Videos`, backed by `\\192.168.137.1\D\Videos`; use UNC for background work. ROG's repaired Z/D/E mappings use the same direct link and are preserved; Windows Credential Manager owns SMB credentials.
 - Download first to `Downloads\iCourse\<course title>\第01节.mp4`, then transfer completed lectures to target. No mandatory wait for OCR or subtitles.
 - Copy into a `.transfer` file, flush, check its size, rename, and only then remove source. Existing same-name, same-size target files count as transferred without reading their contents; size conflicts are preserved and reported. A target `*.mp4.json` sidecar may differ in text length when its `complete` and `total` fields still match the video, so keep that valid target record. Remove failed or stale `.transfer` files. Unavailable network storage never removes staged video.
 - After verified transfer, remove a staging course's `course.json` and directory once no video, lesson metadata, PPT asset, partial download, or other content remains. Remove the empty `Downloads\iCourse` directory too; preserve any course directory with pending or unknown content.
@@ -23,3 +23,9 @@ Scheduled tasks run as the logged-in Meta user: hourly + logon download, daily c
 
 ## Validation
 `python -m unittest test_local_replay test_replay_library -v` checks byte-range resume, subtitle timing, encrypted DB roundtrip, offline/conflict transfer and local API boundaries. Live ROG download, transfer, app and cloud backfill are additional acceptance steps.
+
+## Mac replication and 2026-10-13 recovery
+- ROG explicit runtime destinations use OMEN LAN 192.168.137.1 for Videos and Documents/Elearning. Existing drive mappings are not prerequisites. SMB credentials prefer the current user registry; qualify the default account as META-OMEN\Meta. Reuse accessible shares instead of authenticating again. Never decode NET output as UTF-8.
+- Transfer each completed lecture after its PPT assets are durable, without waiting for the rest of the batch or cloud subtitles. A failed transfer preserves the completed staging file. An unavailable SMB session must not prevent local downloading or hide staged lectures in the catalog. The queue lock still surrounds the entire batch.
+- A non-JSON course response refreshes the session at most twice. Persist a safe course-specific failure if still invalid, then continue other subscribed courses; no raw response/session URLs in logs.
+- Mac pulls independently; its partial resume policy does not change the existing ROG restart-from-zero policy. See [Mac offline sync](mac-offline-sync.md).

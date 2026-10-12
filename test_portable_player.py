@@ -15,7 +15,7 @@ from portable.export_player import player_html
 
 class PortablePlayerTests(unittest.TestCase):
     def setUp(self):
-        temp_root = Path(os.environ["LOCALAPPDATA"]) / "Temp" / ".agents"
+        temp_root = (Path(os.environ["LOCALAPPDATA"]) / "Temp" / ".agents") if os.name == "nt" else Path("/tmp/.agents")
         temp_root.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(prefix="icourse-player-test-", dir=temp_root)
         self.root = Path(self.temp.name)

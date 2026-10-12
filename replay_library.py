@@ -18,8 +18,16 @@ from local_replay import write_json
 BASE = Path(__file__).resolve().parent
 RUNTIME = BASE / "local-data" / "rog"
 def default_destination():
-    if Path(r"D:\Videos").exists():
-        return r"D:\Videos"
+    if os.name == "nt":
+        import ctypes
+        # A disconnected/guest-blocked mapped D: can raise WinError 1272 at
+        # import time, before the explicit UNC configuration can even load.
+        if ctypes.windll.kernel32.GetDriveTypeW("D:\\") in (2, 3):
+            try:
+                if Path(r"D:\Videos").exists():
+                    return r"D:\Videos"
+            except OSError:
+                pass
     return r"\\192.168.137.1\D\Videos"
 
 
@@ -83,32 +91,47 @@ def ordered_lectures(lectures):
     return list(seen.values())
 
 
-def ensure_network_share():
+def ensure_network_share(destination=None):
     if os.name == "nt":
+        import subprocess
+        destination = str(destination or settings()["destination"])
+        match = re.match(r"^(\\\\[^\\]+)\\", destination)
+        if not match:
+            return  # Local storage does not require SMB authentication.
+        if os.path.isdir(destination):
+            return  # Reuse the task's existing session rather than provoking NET 1219.
         try:
             pwd = os.environ.get("OMEN_SMB_PASSWORD")
-            if not pwd:
+            # Scheduled tasks can inherit stale environment values. The current
+            # user's registry is authoritative, as it is for campus credentials.
+            try:
                 import winreg
-                try:
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
-                        pwd, _ = winreg.QueryValueEx(key, "OMEN_SMB_PASSWORD")
-                except OSError:
-                    pass
-            user = os.environ.get("OMEN_SMB_USER", "Meta")
-            cmd = ["net", "use", r"\\192.168.137.1\IPC$"]
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                    pwd, _ = winreg.QueryValueEx(key, "OMEN_SMB_PASSWORD")
+            except (ImportError, OSError):
+                pass
+            user = os.environ.get("OMEN_SMB_USER", r"META-OMEN\Meta")
+            if "\\" not in user and "@" not in user:
+                user = "META-OMEN\\" + user
+            cmd = ["net", "use", match[1] + r"\IPC$"]
             if pwd:
                 cmd.extend([f"/user:{user}", pwd])
-            import subprocess
-            subprocess.run(cmd, capture_output=True, text=True)
-        except Exception:
-            pass
+            # NET uses the Windows console code page; its output is not UTF-8.
+            result = subprocess.run(cmd, capture_output=True, timeout=20)
+            if result.returncode:
+                error = OSError("OMEN SMB authentication failed (net use)")
+                code = re.search(rb"\d{1,5}", result.stdout + result.stderr)
+                error.net_error = int(code[0]) if code else result.returncode
+                raise error
+        except subprocess.TimeoutExpired:
+            raise OSError("OMEN SMB authentication timed out") from None
 
 
 def writable(root):
     try:
         root = Path(root)
         if str(root).startswith(r"\\") or str(root).lower().startswith(("z:", "d:", "e:")):
-            ensure_network_share()
+            ensure_network_share(root)
         if not root.parent.exists():
             return False
         root.mkdir(exist_ok=True)
@@ -236,7 +259,8 @@ def subtitle_text(segments):
 
 
 def catalog(config):
-    ensure_network_share()
+    with contextlib.suppress(OSError):
+        ensure_network_share(config["destination"])
     result = []
     for root_index, root in enumerate(roots(config)):
         try:

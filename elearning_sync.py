@@ -38,7 +38,9 @@ def main():
     runtime = args.config.resolve().parent
     if args.command == "status":
         last = runtime / "last-run.json"
-        print(json.dumps({"config": config, "last_run": json.loads(last.read_text(encoding="utf-8")) if last.exists() else None}, ensure_ascii=False, indent=2))
+        error = runtime / "last-error.json"
+        print(json.dumps({"config": config, "last_run": json.loads(last.read_text(encoding="utf-8")) if last.exists() else None,
+                          "last_error": json.loads(error.read_text(encoding="utf-8")) if error.exists() else None}, ensure_ascii=False, indent=2))
         return 0
     if args.command == "events":
         with closing(open_db(runtime)) as db:
@@ -84,15 +86,17 @@ def main():
                                    "messages": False, "announcements": False}
             if not config["courses"]:
                 raise ValueError("请先运行 select --all 或 select 课程编号")
-            if config["destination"].startswith("\\\\192.168.137.1\\"):
+            if config["destination"].startswith("\\\\"):
                 from replay_library import ensure_network_share
-                ensure_network_share()
+                ensure_network_share(config["destination"])
             sync = Sync(client, config, runtime)
             try:
                 result = sync.run()
             finally:
                 sync.close()
             print(json.dumps(result, ensure_ascii=False))
+            if not result["errors"]:
+                (runtime / "last-error.json").unlink(missing_ok=True)
             return 1 if result["errors"] else 0
         finally:
             client.close()
@@ -102,6 +106,11 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
+        import traceback
+        write_json(RUNTIME / "last-error.json", {"time": now(), "error": type(exc).__name__,
+                   "winerror": getattr(exc, "winerror", None), "net_error": getattr(exc, "net_error", None),
+                   "frames": [{"file": Path(frame.filename).name, "line": frame.lineno, "function": frame.name}
+                              for frame in traceback.extract_tb(exc.__traceback__)]})
         message = error_label(exc)
         print("任务未完成：" + message, file=sys.stderr)
         # Per-run status is written by Sync; fatal login failures remain in task log.

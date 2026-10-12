@@ -184,7 +184,7 @@ def error_label(exc):
 class Sync:
     def __init__(self, client, config, runtime):
         self.client, self.config, self.runtime = client, config, runtime
-        self.root = Path(config["destination"])
+        self.root = Path(config["destination"]).resolve()
         self.db = open_db(runtime)
         self.stats = {"downloaded": 0, "unchanged": 0, "unavailable": 0, "notices": 0, "errors": []}
 

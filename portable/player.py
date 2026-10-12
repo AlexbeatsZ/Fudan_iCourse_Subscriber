@@ -60,7 +60,7 @@ def catalog(config):
     return courses
 
 
-def make_app(directory, port=None):
+def make_app(directory, port=None, extension=None):
     directory = Path(directory).resolve()
     token = secrets.token_urlsafe(32)
     settings_lock = threading.Lock()
@@ -165,6 +165,8 @@ def make_app(directory, port=None):
                         self.send_media(target, head)
                     else:
                         self.response({"error": "Not found"}, 404, head=head)
+                elif extension and extension.get(self, path, head):
+                    pass
                 else:
                     self.response({"error": "Not found"}, 404, head=head)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -202,6 +204,8 @@ def make_app(directory, port=None):
                 elif self.path == "/api/shutdown":
                     self.response({"ok": True})
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
+                elif extension and extension.post(self, self.path, data):
+                    pass
                 else:
                     self.response({"error": "未知操作"}, 404)
             except (ValueError, KeyError, TypeError) as error:
