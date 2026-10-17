@@ -28,3 +28,21 @@ The September 16 run #2 lost its job logs, so its exact historical cause is
 unknown. Runs #23 and #80 failed after successful login with only `HTTPError`
 logged. Anonymous GitHub access and lack of retries are confirmed code gaps;
 the old logs do not identify their exact HTTP status or failing service.
+
+On October 17, manual dispatch returned HTTP 422, `Actions has been disabled
+for this repository`, even though the repository Actions permissions endpoint
+reported `enabled=true` and the workflow reported `state=active`. The signed-in
+Actions page explained that GitHub had automatically disabled workflows on this
+fork to reduce wasted compute. Re-enable through its explicit confirmation
+button; the page confirmed `Actions Enabled` and accepted probe run #90.
+
+Verification on October 17: main's 21 focused tests passed; after merging the
+same fix into the Mac development branch, its 30 affected tests passed. Live
+[probe #90](https://github.com/AlexbeatsZ/Fudan_iCourse_Subscriber/actions/runs/38997702926)
+completed successfully in 2m55s, authenticated to iCourse, loaded the encrypted
+cloud database, checked all seven courses and reported `needed=true`. The ASR
+job was skipped intentionally because `probe_only=true`.
+
+[Normal run #91](https://github.com/AlexbeatsZ/Fudan_iCourse_Subscriber/actions/runs/38997984175)
+was then dispatched to resume pending processing. Its completion and resulting
+data updates have not yet been verified.
