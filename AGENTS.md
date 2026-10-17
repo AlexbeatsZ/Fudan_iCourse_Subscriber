@@ -12,7 +12,7 @@ eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `D:\Docume
 截至 2026-09-28，本机 `D:\Videos` 的 7 门订阅课程有 27 节视频、27 个课件目录、19 份 VTT 字幕；新增录像的字幕尚未全部生成。课程对应数量：物理化学AⅢ 5、生物化学B 3、量子化学原理及应用(H) 6、人工智能在化学中的应用 3、应用化学专题 4、无机化学 4、数智化实用英文写作 2。
 
 # Active Work
-- 2026-10-17: Actions 巡检使用 GitHub 自带令牌读取 data 分支；临时 HTTP/连接/非 JSON 故障最多尝试 3 次，持续故障保持失败，不发布 needed=false。错误日志仅保留状态码和主机。`workflow_dispatch` 新增 `probe_only`，默认仍保留手动强制处理行为。设计：[Actions probe](docs/design/actions-probe.md)。截图 #2（2026-09-16）的日志已不可用，不能确认历史根因；#23/#80 明确为登录成功后的 HTTPError，原日志没有状态码。线上验证待完成。
+- 2026-10-17: `9029ce8` 已推送 main；修复已合入 feat/local-replay-ppt（`b57685e`），相关测试 main 21 项、工作分支 30 项通过。GitHub 自动停用了 fork 工作流，已在网页重新启用。真实巡检 #90 成功（2m55s）：复旦登录、云端数据库解密、7 门课程检查通过，needed=true。已启动正式工作流 #91（38997984175）；ASR/数据更新尚未验收完成。巡检使用 GitHub 自带令牌，临时 HTTP/连接/非 JSON 故障最多尝试 3 次，持续故障保持失败；错误仅记录状态码和主机。新增 `probe_only`，默认手动强制处理行为保留。设计：[Actions probe](docs/design/actions-probe.md)。截图 #2（2026-09-16）的日志已不可用，历史根因未知；#23/#80 为登录成功后的 HTTPError，旧日志没有状态码。
 - 2026-10-13: Mac 三个独立用户 LaunchAgent 已部署；190 个 eLearning 文件（2,606,957,839 字节）初始副本完成，视频全量队列运行中。真实英文写作录像、字幕跳转、PPT、暂停和续传已验收。ROG 主程序课件轮询完成（32 unchanged、0 errors），原有 eLearning 定时任务已实际返回 0（32 unchanged、0 errors）；iCourse 下载已交回原有定时任务，补下载继续运行。
 - 2026-10-13: ROG 两个目标配置按用户最终确认使用 OMEN `192.168.137.1` 直连 UNC；Mac 独立使用 `192.168.31.214` LAN，SMB 认证随目标服务器变化，读取当前注册表密码并使用明确的 OMEN 本地账户；避免对已可达共享重新认证。非 JSON 课次列表会有限重登录重试，单门失败不终止其他课程；完成每节视频/课件后立即转存。Mac 路径规范化兼容性与播放器扩展保留 Windows 行为。
 - 2026-10-01: 本机播放器已拆分部署到 `C:\Portable Programs\iCourse Player`，使用独立 Python 3.13.16 便携运行时和标准库服务，保留原播放界面、字幕/PPT 联动和同浏览器学习进度；本机播放不再依赖开发项目及其虚拟环境。部署源码与导出器在 `portable/`，设计见 [Portable player](docs/design/portable-player.md)。
