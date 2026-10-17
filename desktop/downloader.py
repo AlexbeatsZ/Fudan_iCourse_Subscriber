@@ -75,7 +75,13 @@ def cloud_database(config):
         raise ValueError("GitHub 仓库名无效")
     with tempfile.TemporaryDirectory(dir=RUNTIME) as td:
         temp = Path(td)
-        response = requests.get(f"https://api.github.com/repos/{repo}/commits/data", timeout=30)
+        # Authenticate only the GitHub API request, never the archive or school requests.
+        headers = {"Accept": "application/vnd.github+json"}
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        response = requests.get(f"https://api.github.com/repos/{repo}/commits/data",
+                                headers=headers, timeout=30)
         response.raise_for_status()
         sha = response.json()["sha"]
         cache = RUNTIME/"cloud.db"

@@ -19,6 +19,7 @@ eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `E:\Docume
 全量 17 节录像视频（~33.5 GB）、高精度单行对轴 VTT 字幕、课件切片与时间轴全量入盘，本地播放器可无缝点播。
 
 # Active Work
+- 2026-10-17: Actions 巡检使用 GitHub 自带令牌读取 data 分支；临时 HTTP/连接/非 JSON 故障最多尝试 3 次，持续故障保持失败，不发布 needed=false。错误日志仅保留状态码和主机。`workflow_dispatch` 新增 `probe_only`，默认仍保留手动强制处理行为。设计：[Actions probe](docs/design/actions-probe.md)。截图 #2（2026-09-16）的日志已不可用，不能确认历史根因；#23/#80 明确为登录成功后的 HTTPError，原日志没有状态码。线上验证待完成。
 - 2026-09-19: added hover/focus/touch PPT previous/next controls (including lightbox), synchronized video seeking and bottom alignment space.
 - 2026-09-19: PPT captions now appear only in slide-focus mode and fullscreen lightbox; normal split view hides the caption strip entirely.
 - 2026-09-19: black minimal study workspace replaces blue card UI; unified video/PPT, shared toolbar, full-width transcript, secondary action menus and real resume progress. Enlarged captions retained; early-load resume overwrite fixed. Design: [player UI](docs/design/player-ui.md). Desktop/narrow layouts, subtitle seek, 34 PPT events, speed and reload/resume checked; 13 tests passed.
@@ -38,6 +39,7 @@ eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `E:\Docume
 - 2026-09-22: eLearning 当前课程轮询、公告/讯息事件队列、可恢复文件发布和历史课程一次性归档完成；历史 10 门经真实下载及三轮断点续传验收，当前定时订阅未被历史课程污染。
 
 # Build / Run / Test
+Actions 巡检回归：`python -m unittest test_check_new_replays test_local_replay test_replay_library -v`。线上只读巡检：`gh workflow run check.yml --ref main -f probe_only=true`；此模式仍真实登录、解密云端数据库并枚举课程，只跳过后续强制 ASR。
 项目上一级的 uv 环境已有 requests、pycryptodome。运行 `..\.venv\Scripts\python.exe local_replay.py --help`。
 完整上游依赖见 requirements.txt，新增下载入口只需 requests、pycryptodome。
 测试：`..\.venv\Scripts\python.exe -m unittest test_local_replay -v`。
