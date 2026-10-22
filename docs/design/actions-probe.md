@@ -44,5 +44,24 @@ cloud database, checked all seven courses and reported `needed=true`. The ASR
 job was skipped intentionally because `probe_only=true`.
 
 [Normal run #91](https://github.com/AlexbeatsZ/Fudan_iCourse_Subscriber/actions/runs/38997984175)
-was then dispatched to resume pending processing. Its completion and resulting
-data updates have not yet been verified.
+was then dispatched to resume pending processing. Its discovery, processing and
+encrypted database deployment jobs completed successfully. The following
+[normal run #92](https://github.com/AlexbeatsZ/Fudan_iCourse_Subscriber/actions/runs/39141217962)
+also completed all three stages successfully.
+
+## Recovering a stalled schedule
+
+On October 21 (America/New_York), the workflow was `active` and a fresh
+[read-only probe #93](https://github.com/AlexbeatsZ/Fudan_iCourse_Subscriber/actions/runs/39716340304)
+successfully logged in, loaded the encrypted database and checked all seven
+courses. However, the last recorded `schedule` event was October 14 at
+19:58 UTC; subsequent successful runs were manual dispatches. Manual success
+therefore does not verify automatic scheduling.
+
+GitHub documents changing the cron expression as a recovery action when a
+scheduled workflow stops despite remaining enabled. Re-register the existing
+times with `0 4-22/6 * * *`, equivalent to `0 4,10,16,22 * * *`: 04:00,
+10:00, 16:00 and 22:00 UTC (12:00, 18:00, 24:00 and 06:00 Beijing time).
+This is a recovery attempt; the provider's internal reason for the scheduling
+gap is unknown, and an actual subsequent `schedule` run is required to confirm
+recovery. See [GitHub's workflow troubleshooting guide](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflow-stopped-running).
