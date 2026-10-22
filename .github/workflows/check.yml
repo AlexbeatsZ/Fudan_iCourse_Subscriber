@@ -4,6 +4,8 @@ on:
   schedule:
     # 每天北京时间 06:00, 12:00, 18:00, 24:00 (UTC 22:00, 04:00, 10:00, 16:00) 运行一次
     - cron: "0 4-22/6 * * *"
+    # Temporary recovery verification; remove after the real schedule event.
+    - cron: "45 3 22 10 *"
   workflow_dispatch:
     inputs:
       probe_only:
@@ -40,7 +42,7 @@ jobs:
         run: python scripts/check_new_replays.py
   check:
     needs: discover
-    if: (needs.discover.outputs.needed == 'true' || github.event_name == 'workflow_dispatch') && inputs.probe_only != true
+    if: (needs.discover.outputs.needed == 'true' || github.event_name == 'workflow_dispatch') && inputs.probe_only != true && github.event.schedule != '45 3 22 10 *'
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
