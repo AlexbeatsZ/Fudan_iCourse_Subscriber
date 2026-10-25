@@ -86,6 +86,11 @@ def make_app(port=8765):
                         if key in data:
                             cfg[key] = str(data[key]).strip()
                     import re
+                    if "repository" in data:
+                        repo = str(data["repository"]).strip()
+                        if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
+                            raise ValueError("GitHub 仓库格式应为 owner/repo")
+                        cfg["repository"] = repo
                     if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", cfg["transfer_time"]):
                         raise ValueError("转存时间格式应为 HH:MM")
                     if not Path(cfg["destination"]).is_absolute() or not Path(cfg["fallback"]).is_absolute():

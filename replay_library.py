@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 
@@ -20,11 +21,28 @@ RUNTIME = BASE / "local-data" / "rog"
 def default_destination():
     if Path(r"E:\Videos").exists():
         return r"E:\Videos"
-    return r"\\192.168.137.1\E\Videos"
+    return str(Path.home() / "Videos" / "iCourse")
+
+
+def default_repository():
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
+        return repo
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"], cwd=BASE,
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        match = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$", result.stdout.strip())
+        if match:
+            return match.group(1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return ""
 
 
 DEFAULT = {"destination": default_destination(), "fallback": str(Path.home()/"Downloads"/"iCourse"),
-           "repository": "AlexbeatsZ/Fudan_iCourse_Subscriber", "courses": ["40243", "38135", "37695", "37543", "37113", "38016", "41642"],
+           "repository": default_repository(), "courses": [],
            "transfer_time": "22:00", "port": 8765}
 
 

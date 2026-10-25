@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import replay_library
 from scripts import db_shard
@@ -14,6 +14,13 @@ from src.data.database import Database
 
 
 class ForkSettingsTests(unittest.TestCase):
+    def test_no_personal_courses_and_local_clone_repository_detection(self):
+        self.assertEqual(replay_library.DEFAULT["courses"], [])
+        with (patch.dict(os.environ, {"GITHUB_REPOSITORY": ""}),
+              patch.object(replay_library.subprocess, "run",
+                           return_value=Mock(stdout="https://github.com/Friend/Copy.git\n"))):
+            self.assertEqual(replay_library.default_repository(), "Friend/Copy")
+
     def test_actions_always_uses_the_current_fork(self):
         with tempfile.TemporaryDirectory() as directory:
             config_dir = Path(directory)
