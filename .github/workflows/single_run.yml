@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       course_ids:
-        description: "Course IDs for one run; required on first run, blank uses data branch subscriptions"
+        description: "Course IDs for one run; blank uses data branch subscriptions (or initializes empty data on first run)"
         required: false
         default: ""
         type: string
@@ -30,18 +30,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Cache Python packages
-        id: cache-pip
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}/lib/python*/site-packages
-          key: pip-${{ hashFiles('requirements.txt') }}
+      - name: Install initialization dependencies
+        run: pip install requests pycryptodome
 
-      - name: Install Python dependencies
-        if: steps.cache-pip.outputs.cache-hit != 'true'
-        run: pip install -r requirements.txt
+      - name: Initialize data branch if missing
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INITIAL_COURSE_IDS: ${{ inputs.course_ids }}
+        run: python scripts/bootstrap_data_branch.py
 
       - name: Load subscriptions from data branch
+        id: subscriptions
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SINGLE_RUN_COURSE_IDS: ${{ inputs.course_ids }}
@@ -51,13 +50,27 @@ jobs:
           DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
         run: python scripts/resolve_subscriptions.py --mode single
 
+      - name: Cache Python packages
+        if: steps.subscriptions.outputs.has_courses == 'true'
+        id: cache-pip
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
+          key: pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Python dependencies
+        if: steps.subscriptions.outputs.has_courses == 'true' && steps.cache-pip.outputs.cache-hit != 'true'
+        run: pip install -r requirements.txt
+
       - name: Install ffmpeg
+        if: steps.subscriptions.outputs.has_courses == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
 
       - name: Cache ASR models
+        if: steps.subscriptions.outputs.has_courses == 'true'
         id: cache-models
         uses: actions/cache@v4
         with:
@@ -67,7 +80,7 @@ jobs:
           key: asr-models-sense-voice-2024-07-17
 
       - name: Download ASR models
-        if: steps.cache-models.outputs.cache-hit != 'true'
+        if: steps.subscriptions.outputs.has_courses == 'true' && steps.cache-models.outputs.cache-hit != 'true'
         run: |
           wget -q https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
           tar xf sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
@@ -75,12 +88,14 @@ jobs:
           wget -q https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
 
       - name: Cache RapidOCR models
+        if: steps.subscriptions.outputs.has_courses == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/rapidocr
           key: rapidocr-onnx-default-v1
 
       - name: Fetch database from data branch
+        if: steps.subscriptions.outputs.has_courses == 'true'
         run: |
           mkdir -p data
           git fetch --depth=1 origin "+refs/heads/data:refs/remotes/origin/data" 2>/dev/null \
@@ -108,7 +123,7 @@ jobs:
 
       - name: Decode database
         id: decode
-        if: hashFiles('data/sharded/icourse-index.enc', 'data/icourse.db.gz.enc', 'data/icourse.db.enc') != ''
+        if: steps.subscriptions.outputs.has_courses == 'true' && hashFiles('data/sharded/icourse-index.enc', 'data/icourse.db.gz.enc', 'data/icourse.db.enc') != ''
         env:
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
@@ -127,6 +142,7 @@ jobs:
 
       - name: Record database state
         id: db-before
+        if: steps.subscriptions.outputs.has_courses == 'true'
         run: |
           if [ -f data/icourse.db ]; then
             echo "hash=$(md5sum data/icourse.db | cut -d' ' -f1)" >> $GITHUB_OUTPUT
@@ -135,6 +151,7 @@ jobs:
           fi
 
       - name: Run
+        if: steps.subscriptions.outputs.has_courses == 'true'
         timeout-minutes: 110
         env:
           StuId: ${{ secrets.STUID }}
@@ -144,7 +161,7 @@ jobs:
           python -u main.py
 
       - name: Deploy database to data branch
-        if: always()
+        if: always() && steps.subscriptions.outputs.has_courses == 'true'
         env:
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}

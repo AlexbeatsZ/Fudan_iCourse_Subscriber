@@ -50,13 +50,31 @@
 
 独立密码建议使用密码管理器生成的长随机密码。GitHub 的 `data` 分支是公开的加密数据；密码过弱有离线猜解风险。
 
-### 第 3 步：获取课程 ID
+### 第 3 步：首次启动（自动创建 data 分支）
+
+只需要先在自己的 Fork 中配置 `STUID`、`UISPSW`（建议另外设置 `DB_PASSWORD`），**不需要提前知道课程 ID，也不需要创建 `data` 分支**。
+
+进入 **Actions → iCourse Check → Run workflow**，正常运行一次。工作流会在查询课程之前，自动创建一个与 `main` 独立的 `data` 分支，并写入：
+
+```json
+{
+  "course_ids": []
+}
+```
+
+没有课程时，检查任务会成功结束，不会启动耗时的 ASR/OCR，也不会要求数据库预先存在。随后直接在 GitHub 切换到自己仓库的 `data` 分支，编辑 `data/subscriptions.json`，填入课程 ID；下一次定时或手动运行 **iCourse Check** 就会抓取并创建加密数据库。**首次只有配置文件，没有加密数据库，因此网页查看器要等第一次实际抓取成功后才能连接。**
+
+也可以直接运行 **Single Run**：第一次填写课程 ID 时，工作流会自动将它们作为初始订阅；第一次留空则只创建空的 `data` 分支。若 `data` 已存在，Single Run 填写的课程仅用于本次运行，不会覆盖已有的公开订阅清单。
+
+如果是刚 Fork 的仓库，GitHub 可能默认禁用 Actions，需要先进入 Actions 页面启用工作流。自动创建分支需要工作流成功取得 `contents: write` 权限；若出现 403，请检查仓库 **Settings → Actions → General → Workflow permissions** 的写入授权或组织策略。
+
+### 第 4 步：获取并添加课程 ID
 
 登录 [iCourse 网页版](https://icourse.fudan.edu.cn)，进入你要监控的课程页面，URL 中的数字就是课程 ID：
 
 ![课程id如图所示](docs/courseid.png)
 
-多门课用英文逗号隔开：`35472,30251,40123`。课程 ID 不属于秘密信息，会明文保存在 `data` 分支。
+在自己仓库的 `data` 分支编辑 `data/subscriptions.json`，把课程 ID 写在 `course_ids` 数组中，例如：`["35472", "30251", "40123"]`。课程 ID 不属于秘密信息，会明文保存在 `data` 分支。
 
 ### 可选：获取 API Key（当前自动摘要功能未启用）
 
@@ -73,17 +91,17 @@
 - **QQ 邮箱**：保持默认 `smtp.qq.com:465`，在账户与安全设置中开启 SMTP 服务，将授权码填入 `SMTP_PASSWORD`。
 - **Gmail**：设置 `SMTP_HOST=smtp.gmail.com`、`SMTP_PORT=465`，开启两步验证并将 Google 应用专用密码填入 `SMTP_PASSWORD`。
 
-### 第 4 步：初始化数据库并运行
+### 第 5 步：开始抓取
 
-- **首次运行**：仓库 → Actions → **Single Run** → Run workflow，**必须填写自己的课程 ID**（用英文逗号分隔）。这一步会创建数据库和 `data/subscriptions.json`，不需要事先手动建分支。
-- **确认初始化**：等待工作流完成，检查你自己的 Fork 是否出现 `data` 分支（含 `data/icourse-index.enc` 和 `data/subscriptions.json`）
+- **首次运行**：完成第 3 步自动创建 `data`、并在第 4 步填写课程后，再运行一次 **iCourse Check**，或者直接在首次 **Single Run** 里填写课程 ID。
+- **确认初始化**：第一次抓取成功后，`data` 分支将同时包含 `data/icourse-index.enc`、加密分片和 `data/subscriptions.json`。
 - **定时检查**：默认北京时间 06:00、12:00、18:00、24:00；也可手动运行 **iCourse Check**
 
-首次运行会处理有权限访问的已有录播，后续只处理新增课次。尚未初始化订阅时，定时巡检会直接跳过并提示需要运行 Single Run，不再报 HTTP 422。之后可以通过网页的**订阅编辑器**添加或移除课程，点击「保存订阅到 data 分支」即可；不会修改 GitHub Secrets。单次运行仍可以通过输入课程 ID 临时处理别的课程，不改变定时订阅。
+首次实际抓取会处理有权限访问的已有录播，后续只处理新增课次。空订阅时，工作流初始化 `data` 后直接跳过抓取；以后可以通过网页的**订阅编辑器**添加或移除课程，点击「保存订阅到 data 分支」即可；不会修改 GitHub Secrets。单次运行仍可以通过输入课程 ID 临时处理别的课程，不改变已存在的定时订阅。
 
 旧用户升级时，如果 `data/subscriptions.json` 尚不存在，工作流会优先从原有加密数据库的 `subscribed_course_ids` 元数据迁移并保存它。因此可以在确认迁移成功后删除旧 `COURSE_IDS` Secret。如果旧数据库没有记录订阅清单，请通过网页订阅编辑器保存一次，或者首次在 Single Run 中输入课程 ID。
 
-### 第 5 步：部署与连接网页
+### 第 6 步：部署与连接网页
 
 进入 **Settings → Pages → Source → GitHub Actions**，再触发 **Deploy Frontend** 工作流。访问你自己的 `https://用户名.github.io/Fudan_iCourse_Subscriber/`，检查 Repo Owner 是否为你的账号。
 

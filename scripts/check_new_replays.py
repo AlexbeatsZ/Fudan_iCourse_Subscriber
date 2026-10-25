@@ -93,7 +93,7 @@ def main():
         config["repository"] = os.environ["GITHUB_REPOSITORY"]
     env_courses = [v.strip() for v in os.environ.get("COURSE_IDS", "").split(",") if v.strip()]
     if not env_courses:
-        print("No subscriptions configured. Run Single Run with course IDs to initialize.")
+        print("No subscriptions configured. Edit data/subscriptions.json on the data branch to start monitoring.")
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             f.write("needed=false\n")
         return

@@ -24,13 +24,19 @@ jobs:
     timeout-minutes: 15
     outputs:
       needed: ${{ steps.probe.outputs.needed }}
+      has_courses: ${{ steps.subscriptions.outputs.has_courses }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests pycryptodome
+      - name: Initialize data branch if missing
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/bootstrap_data_branch.py
       - name: Load subscriptions from data branch
+        id: subscriptions
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FUDAN_STUID: ${{ secrets.STUID }}
@@ -49,7 +55,7 @@ jobs:
         run: python scripts/check_new_replays.py
   check:
     needs: discover
-    if: (needs.discover.outputs.needed == 'true' || github.event_name == 'workflow_dispatch') && inputs.probe_only != true
+    if: (needs.discover.outputs.needed == 'true' || (github.event_name == 'workflow_dispatch' && needs.discover.outputs.has_courses == 'true')) && inputs.probe_only != true
     runs-on: ubuntu-latest
     timeout-minutes: 120
 

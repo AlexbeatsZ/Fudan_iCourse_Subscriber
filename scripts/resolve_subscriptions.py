@@ -24,11 +24,6 @@ def resolve(repository, token, mode, input_ids=""):
     explicit = parse_csv(input_ids)
     if mode == "single":
         effective = explicit if input_ids.strip() else (saved or [])
-        if not effective:
-            raise ValueError(
-                "No courses selected: enter course IDs on the first Single Run, "
-                "or save subscriptions to the data branch."
-            )
         if saved is None:
             saved = effective  # First one-off run bootstraps persistent subscriptions.
     else:
@@ -50,6 +45,9 @@ def main():
         output.write("COURSE_IDS=" + ",".join(ids) + "\n")
         output.write("SUBSCRIBED_COURSE_IDS=" + ",".join(subscribed) + "\n")
         output.write("SUBSCRIPTIONS_NEEDS_MIGRATION=" + ("1" if needs_migration else "0") + "\n")
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write("has_courses=" + ("true" if ids else "false") + "\n")
     print(f"Using {len(ids)} course(s); persisted {len(subscribed)} subscription(s)."
           + (" Subscription manifest migration pending." if needs_migration else ""))
 
