@@ -75,14 +75,18 @@ def cloud_database(config):
     """
     import requests
     import gzip
+    import shutil
     from src.data.crypto_box import (decrypt, is_gzip, is_sqlite,
                                      password_candidates)
     from src.data.sharder import load_index, reassemble_database
     repo = config["repository"]
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
         raise ValueError("GitHub 仓库名无效")
-    RUNTIME.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=RUNTIME) as td:
+    cache = Path(config["database"]) if "database" in config else RUNTIME/"cloud.db"
+    version_path = (cache.with_name(cache.name + ".version.json")
+                    if "database" in config else RUNTIME/"cloud-version.json")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=cache.parent) as td:
         temp = Path(td)
         # Authenticate only the GitHub API request, never the archive or school requests.
         headers = {"Accept": "application/vnd.github+json"}
@@ -95,18 +99,27 @@ def cloud_database(config):
                                 headers=headers, timeout=30)
         response.raise_for_status()
         sha = response.json()["object"]["sha"]
-        cache = RUNTIME/"cloud.db"
-        account, password = credentials()
-        keys = password_candidates(
-            stuid=account, uispsw=password,
-            db_password=os.environ.get("DB_PASSWORD", ""),
-            previous_db_password=os.environ.get("DB_PASSWORD_PREVIOUS", ""),
-        )
+        if "password_file" in config:
+            password_options = {
+                "db_password": Path(config["password_file"]).read_text(
+                    encoding="utf-8-sig").rstrip("\r\n"),
+            }
+        else:
+            account, password = credentials()
+            password_options = {
+                "stuid": account, "uispsw": password,
+                "db_password": os.environ.get("DB_PASSWORD", ""),
+                "previous_db_password": os.environ.get("DB_PASSWORD_PREVIOUS", ""),
+                "dashscope": os.environ.get("DASHSCOPE_API_KEY", ""),
+                "smtp": os.environ.get("SMTP_PASSWORD", ""),
+            }
+        keys = password_candidates(**password_options)
         preferred_key = keys[0][1]
         # A cache from a different key must not bypass credential verification.
         key_id = hashlib.sha256(("cache:" + preferred_key).encode()).hexdigest()
-        version = read_json(RUNTIME/"cloud-version.json", {})
-        if cache.exists() and version.get("sha") == sha and version.get("key_id") == key_id:
+        version = read_json(version_path, {})
+        if (cache.exists() and version.get("repository") == repo
+                and version.get("sha") == sha and version.get("key_id") == key_id):
             config["_needs_rekey"] = version.get("needs_rekey", False)
             return cache
         response = requests.get(f"https://codeload.github.com/{repo}/zip/{sha}", timeout=120)
@@ -140,14 +153,7 @@ def cloud_database(config):
         elif legacy_file is not None:
             # Old forks may still store one encrypted SQLite file instead
             # of a sharded index.  Decode it before the normal v2 upload.
-            old_keys = password_candidates(
-                stuid=account, uispsw=password,
-                db_password=os.environ.get("DB_PASSWORD", ""),
-                previous_db_password=os.environ.get("DB_PASSWORD_PREVIOUS", ""),
-                dashscope=os.environ.get("DASHSCOPE_API_KEY", ""),
-                smtp=os.environ.get("SMTP_PASSWORD", ""),
-                include_legacy=True,
-            )
+            old_keys = password_candidates(**password_options, include_legacy=True)
             blob = legacy_file.read_bytes()
             for label, key, iterations in old_keys:
                 try:
@@ -174,11 +180,25 @@ def cloud_database(config):
         with closing(sqlite3.connect(result)) as db:
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise ValueError("云端数据库不完整")
-        result.replace(cache)
-        config["_needs_rekey"] = label != ("custom" if os.environ.get("DB_PASSWORD") else "v2")
-        write_json(RUNTIME/"cloud-version.json", {
-            "sha": sha, "key_id": key_id, "needs_rekey": config["_needs_rekey"],
+        needs_rekey = label != ("custom" if password_options.get("db_password") else "v2")
+        pending_version = temp/"cloud-version.json"
+        write_json(pending_version, {
+            "repository": repo, "sha": sha, "key_id": key_id,
+            "needs_rekey": needs_rekey,
         })
+        previous = temp/"previous-cloud.db"
+        if cache.exists():
+            shutil.copyfile(cache, previous)
+        try:
+            result.replace(cache)
+            pending_version.replace(version_path)
+        except OSError:
+            if previous.exists():
+                previous.replace(cache)
+            else:
+                cache.unlink(missing_ok=True)
+            raise
+        config["_needs_rekey"] = needs_rekey
         return cache
 
 

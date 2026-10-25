@@ -12,6 +12,11 @@ GitHub Actions discovers courses hourly and runs SenseVoice/OCR/summary only whe
 - Number chronological deduplicated course sessions (including not-yet-playable sessions), zero-pad to at least two digits. Do not overwrite an existing different sub_id when upstream order changes.
 - PPT events retain repeated images and zero timestamps. Assets: `第01节.assets`; metadata: `第01节.lesson.json`; subtitle: `第01节.vtt`.
 
+## Independent cloud database readers
+`uv run python replay_library.py cloud --config local-data/liu-junyu.json` updates only an explicitly configured database. The private JSON must provide `repository` and `database`; optional `password_file` is a UTF-8/BOM file containing the original database password. The existing crypto candidate builder performs custom-password derivation; explicit password files never borrow personal school credentials or environment password candidates.
+
+The database has its own adjacent lock and version sidecar, bound to repository, source commit and preferred key identity. Failed downloads/decryption preserve the previous database. This command does not log into school, download media, enter the personal queue or modify personal settings/last-run. Omitted options on existing personal paths retain the default runtime database and credential behavior. The local course-arrangement reader may read this database together with the existing D-drive Elearning archive; it does not duplicate the downloader.
+
 ## Subtitle fidelity
 Persist original `{start_ms,end_ms,text}` ASR/official segments in lectures.transcript_segments; keep schema, JS mirror, merge and encrypted shard paths consistent. Backfill processed old lectures missing segments, without re-emailing existing summaries. Never manufacture timecodes by splitting a flat transcript. The local player uses original media-relative times, allows per-lecture subtitle offset, and preserves playback position.
 
