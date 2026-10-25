@@ -34,7 +34,15 @@ def read_json(path, default=None):
 
 def settings():
     RUNTIME.mkdir(parents=True, exist_ok=True)
-    return DEFAULT | read_json(RUNTIME/"settings.json", {})
+    config = DEFAULT | read_json(RUNTIME/"settings.json", {})
+    # A fork's Actions runner must NEVER read the original author's data branch.
+    # Local desktop users can still override the repository in settings.json.
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        repo = os.environ.get("GITHUB_REPOSITORY", "")
+        if not repo:
+            raise RuntimeError("GITHUB_REPOSITORY is required in GitHub Actions")
+        config["repository"] = repo
+    return config
 
 
 @contextlib.contextmanager

@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -28,7 +29,7 @@ class ReplayProbeTests(unittest.TestCase):
         with (patch.object(check, "settings", return_value={"courses": ["1"]}),
               patch.object(check, "probe", side_effect=outcomes) as probe,
               patch.object(check.time, "sleep") as sleep,
-              patch.dict(os.environ, {"COURSE_IDS": "", "GITHUB_OUTPUT": str(output)}),
+              patch.dict(os.environ, {"COURSE_IDS": "1", "GITHUB_OUTPUT": str(output)}),
               contextlib.redirect_stdout(io.StringIO()) as logs):
             check.main()
         return probe, sleep, logs.getvalue()
@@ -54,7 +55,7 @@ class ReplayProbeTests(unittest.TestCase):
         with (tempfile.TemporaryDirectory() as directory,
               patch.object(check, "probe", side_effect=http_error(403)) as probe,
               patch.object(check, "settings", return_value={"courses": ["1"]}),
-              patch.dict(os.environ, {"GITHUB_OUTPUT": str(Path(directory) / "output")}),
+              patch.dict(os.environ, {"COURSE_IDS": "1", "GITHUB_OUTPUT": str(Path(directory) / "output")}),
               self.assertRaises(requests.HTTPError)):
             check.main()
         probe.assert_called_once()
@@ -66,10 +67,32 @@ class ReplayProbeTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 self.assertTrue(check.transient_error(error))
 
+    def test_missing_or_invalid_course_ids_fail_before_login(self):
+        for value in ("", "  ", "40243,not-a-course"):
+            with (self.subTest(value=value),
+                  patch.dict(os.environ, {"COURSE_IDS": value}),
+                  patch.object(check, "probe") as probe,
+                  self.assertRaises((RuntimeError, ValueError))):
+                check.main()
+            probe.assert_not_called()
+
+    def test_probe_requests_rekey_even_without_new_lectures(self):
+        client = Mock()
+        client.get_course_detail.return_value = {"lectures": []}
+        with tempfile.TemporaryDirectory() as directory:
+            dbpath = Path(directory) / "empty.db"
+            sqlite3.connect(dbpath).close()
+            with (patch.object(check, "login", return_value=client),
+                  patch.object(check, "cloud_database",
+                               side_effect=lambda cfg: cfg.update(_needs_rekey=True) or dbpath)):
+                self.assertTrue(check.probe({"repository": "owner/repo", "courses": ["1"]}))
+
     def test_error_summary_omits_signed_paths_and_query(self):
         error = http_error(502, "https://webvpn.fudan.edu.cn/private/ticket?token=secret")
         self.assertEqual(check.error_summary(error), "HTTPError (HTTP 502, webvpn.fudan.edu.cn)")
         self.assertEqual(check.error_summary(requests.Timeout("token=secret")), "Timeout")
+        self.assertIn("COURSE_IDS", check.error_summary(RuntimeError("COURSE_IDS is not set")))
+        self.assertEqual(check.error_summary(RuntimeError("token=secret")), "RuntimeError")
 
     def test_only_missing_data_branch_is_first_run(self):
         config = {"repository": "owner/repo", "courses": ["1"]}
@@ -88,6 +111,7 @@ class ReplayProbeTests(unittest.TestCase):
     def test_github_token_is_scoped_to_api_request(self):
         with (tempfile.TemporaryDirectory() as directory,
               patch.object(downloader, "RUNTIME", Path(directory)),
+              patch.object(downloader, "credentials", return_value=("student", "uis")),
               patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}),
               patch("requests.get", side_effect=[Mock(json=lambda: {"sha": "abc"}),
                                                 Mock(raise_for_status=Mock(side_effect=http_error(503)))]) as get):

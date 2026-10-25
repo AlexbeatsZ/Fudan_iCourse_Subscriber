@@ -20,6 +20,14 @@ def error_summary(error):
     if response is not None:
         host = urlsplit(response.url or "").hostname or "unknown host"
         return f"{type(error).__name__} (HTTP {response.status_code}, {host})"
+    # Explicit, controlled messages are safe; arbitrary network exception text
+    # may include authenticated URLs and must never be printed.
+    message = str(error)
+    if message.startswith((
+        "COURSE_IDS ", "GITHUB_REPOSITORY ", "STUID / UISPSW ",
+        "云端数据库解密失败", "课程 ",
+    )):
+        return message
     return type(error).__name__
 
 
@@ -54,13 +62,19 @@ def probe(config):
                         or source.path != f"/repos/{config['repository']}/commits/data"):
                     raise
                 dbpath = None
-            needed = dbpath is None
+            needed = dbpath is None or config.get("_needs_rekey", False)
             if dbpath:
                 with closing(sqlite3.connect(dbpath)) as db:
                     db.row_factory = sqlite3.Row
                     for cid in config["courses"]:
                         print(f"Checking course {cid}", flush=True)
-                        for lecture in ordered_lectures(client.get_course_detail(cid)["lectures"]):
+                        try:
+                            lectures = client.get_course_detail(cid)["lectures"]
+                        except Exception as error:
+                            raise RuntimeError(
+                                f"课程 {cid} 无法读取：请确认 COURSE_IDS 和课程访问权限"
+                            ) from error
+                        for lecture in ordered_lectures(lectures):
                             if not lecture.get("has_playback"):
                                 continue
                             row = db.execute("SELECT * FROM lectures WHERE sub_id=?", (str(lecture["sub_id"]),)).fetchone()
@@ -74,9 +88,19 @@ def probe(config):
 
 def main():
     config = settings()
+    # Also honour an explicit repository environment outside Actions.
+    if os.environ.get("GITHUB_REPOSITORY"):
+        config["repository"] = os.environ["GITHUB_REPOSITORY"]
     env_courses = [v.strip() for v in os.environ.get("COURSE_IDS", "").split(",") if v.strip()]
-    if env_courses:
-        config["courses"] = env_courses
+    if not env_courses:
+        raise RuntimeError("COURSE_IDS is not set; add your own course IDs to Actions secrets")
+    if not all(v.isdecimal() for v in env_courses):
+        raise ValueError("COURSE_IDS must contain comma-separated numeric course IDs")
+    if os.environ.get("GITHUB_ACTIONS") == "true" and not (
+        os.environ.get("FUDAN_STUID") and os.environ.get("FUDAN_UISPSW")
+    ):
+        raise RuntimeError("STUID / UISPSW Secrets 未配置")
+    config["courses"] = env_courses
     for attempt in range(1, 4):
         try:
             needed = probe(config)

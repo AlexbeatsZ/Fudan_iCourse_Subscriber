@@ -4,8 +4,6 @@ on:
   schedule:
     # 每天北京时间 06:00, 12:00, 18:00, 24:00 (UTC 22:00, 04:00, 10:00, 16:00) 运行一次
     - cron: "0 4-22/6 * * *"
-    # Temporary recovery verification; remove after the real schedule event.
-    - cron: "45 3 22 10 *"
   workflow_dispatch:
     inputs:
       probe_only:
@@ -37,12 +35,14 @@ jobs:
         env:
           FUDAN_STUID: ${{ secrets.STUID }}
           FUDAN_UISPSW: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ secrets.COURSE_IDS || '40243,38135,37695,37543,37113,38016,41642' }}
+          COURSE_IDS: ${{ secrets.COURSE_IDS }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/check_new_replays.py
   check:
     needs: discover
-    if: (needs.discover.outputs.needed == 'true' || github.event_name == 'workflow_dispatch') && inputs.probe_only != true && github.event.schedule != '45 3 22 10 *'
+    if: (needs.discover.outputs.needed == 'true' || github.event_name == 'workflow_dispatch') && inputs.probe_only != true
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -130,57 +130,22 @@ jobs:
           fi
 
       - name: Decode database
+        id: decode
         if: hashFiles('data/sharded/icourse-index.enc', 'data/icourse.db.gz.enc', 'data/icourse.db.enc') != ''
         env:
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           if [ -f data/sharded/icourse-index.enc ]; then
-            # Sharded format — always v2.
             python scripts/db_shard.py reassemble data/sharded data/icourse.db
-            echo "Reassembled sharded database."
-            exit 0
-          fi
-
-          # Legacy single-file path (one-time migration on first sharded run).
-          NEW_KEY=$(printf '%s' "ICSv2:${STUID}:${UISPSW}" | sha256sum | cut -d' ' -f1)
-          LEGACY_KEY="${STUID}${UISPSW}${DASHSCOPE_API_KEY}${SMTP_PASSWORD}"
-
-          decrypt_blob() {
-            local in_path="$1"
-            local out_path="$2"
-            if openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
-                 -in "$in_path" -out "$out_path" \
-                 -pass pass:"$NEW_KEY" 2>/dev/null; then
-              echo "v2"
-              return 0
-            fi
-            if openssl enc -aes-256-cbc -d -pbkdf2 \
-                 -in "$in_path" -out "$out_path" \
-                 -pass pass:"$LEGACY_KEY" 2>/dev/null; then
-              echo "legacy"
-              return 0
-            fi
-            return 1
-          }
-
-          if [ -f data/icourse.db.gz.enc ]; then
-            if VER=$(decrypt_blob data/icourse.db.gz.enc data/icourse.db.gz); then
-              gzip -d data/icourse.db.gz
-              echo "Legacy compressed DB decrypted ($VER)."
-            else
-              echo "::warning::Decryption failed (both keys). Starting with fresh database."
-              rm -f data/icourse.db data/icourse.db.gz
-            fi
+          elif [ -f data/icourse.db.gz.enc ]; then
+            python scripts/db_shard.py decode-legacy data/icourse.db.gz.enc data/icourse.db
           elif [ -f data/icourse.db.enc ]; then
-            if VER=$(decrypt_blob data/icourse.db.enc data/icourse.db); then
-              echo "Legacy uncompressed DB decrypted ($VER)."
-            else
-              echo "::warning::Decryption failed (both keys). Starting with fresh database."
-              rm -f data/icourse.db
-            fi
+            python scripts/db_shard.py decode-legacy data/icourse.db.enc data/icourse.db
           fi
 
       - name: Record database state
@@ -198,7 +163,7 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ secrets.COURSE_IDS || '40243,38135,37695,37543,37113,38016,41642' }}
+          COURSE_IDS: ${{ secrets.COURSE_IDS }}
           CRAWL_TERM: ${{ secrets.CRAWL_TERM }}
         run: |
           python -u main.py
@@ -208,12 +173,14 @@ jobs:
         env:
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ secrets.COURSE_IDS || '40243,38135,37695,37543,37113,38016,41642' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
+          COURSE_IDS: ${{ secrets.COURSE_IDS }}
           # Persisted by the sharder into meta('subscribed_course_ids')
           # so single_run.yml / delete_course.yml (which run with a
           # different or no COURSE_IDS) still know the user's real
           # subscription and don't reclassify everything as cold.
-          SUBSCRIBED_COURSE_IDS: ${{ secrets.COURSE_IDS || '40243,38135,37695,37543,37113,38016,41642' }}
+          SUBSCRIBED_COURSE_IDS: ${{ secrets.COURSE_IDS }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -224,7 +191,7 @@ jobs:
           fi
 
           AFTER=$(md5sum data/icourse.db | cut -d' ' -f1)
-          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ]; then
+          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ] && [ "${{ steps.decode.outputs.needs_rekey }}" != "true" ]; then
             echo "Database unchanged, skipping commit."
             exit 0
           fi

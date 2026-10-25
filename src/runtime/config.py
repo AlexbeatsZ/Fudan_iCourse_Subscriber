@@ -172,10 +172,10 @@ USE_OFFICIAL_TRANSCRIPT = (
 )
 
 # 监控的课程 ID 列表
-DEFAULT_COURSE_IDS = "40243,38135,37695,37543,37113,38016,41642"
+DEFAULT_COURSE_IDS = ""
 COURSE_IDS = [
     c.strip()
-    for c in (os.environ.get("COURSE_IDS") or DEFAULT_COURSE_IDS).split(",")
+    for c in os.environ.get("COURSE_IDS", DEFAULT_COURSE_IDS).split(",")
     if c.strip()
 ]
 

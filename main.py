@@ -73,10 +73,12 @@ def _enumerate_lectures(client: ICourseClient, db: Database,
     process this run.  Done up-front so the prefetch loop can see across
     course boundaries when picking the "next" lecture."""
     out: list[tuple[str, str, dict]] = []
+    successful_courses = 0
     for course_id in config.COURSE_IDS:
         try:
             _check_session(client)
             detail = client.get_course_detail(course_id)
+            successful_courses += 1
             course_title = detail["title"]
             teacher = detail["teacher"]
             lectures = detail["lectures"]
@@ -143,6 +145,10 @@ def _enumerate_lectures(client: ICourseClient, db: Database,
         except Exception:
             reporter.course_enumeration_error(course_id)
             traceback.print_exc()
+    if config.COURSE_IDS and successful_courses == 0:
+        raise RuntimeError(
+            "All course queries failed. Check COURSE_IDS, course access and the iCourse login."
+        )
     return out
 
 
@@ -295,12 +301,10 @@ def run():
     reporter = Reporter()
     reporter.run_header()
 
-    if not config.COURSE_IDS and not config.CRAWL_TERM:
-        reporter.info(
-            "No COURSE_IDS configured. Set COURSE_IDS to process lectures "
-            "or leave empty for crawl-only mode."
-        )
-        # Fall through — crawl-only mode is valid.
+    if not config.COURSE_IDS:
+        raise RuntimeError("COURSE_IDS is empty. Set your own comma-separated course IDs.")
+    if not all(cid.isdecimal() for cid in config.COURSE_IDS):
+        raise ValueError("COURSE_IDS must contain comma-separated numeric course IDs.")
 
     vpn = login_with_retry()
     db = Database()
@@ -316,12 +320,6 @@ def run():
 
     # Discover new semesters every run; only fetch catalogs not yet stored.
     _crawl_semester_catalog(client, db, reporter)
-
-    if not config.COURSE_IDS:
-        # Crawl-only mode: nothing to process, just persist + exit.
-        reporter.info("\n[Crawl-only mode] No COURSE_IDS — skipping lectures.")
-        reporter.run_footer()
-        return
 
     scheduler = Scheduler(reporter=reporter)
 

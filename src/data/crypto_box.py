@@ -10,7 +10,8 @@ Key derivation:
   -> first 32 bytes = AES-256 key
   -> last 16 bytes = IV
 
-Two key flavors:
+Key flavors:
+  - custom:    sha256("ICSdb:" + DB_PASSWORD).hexdigest(),      100_000 iter
   - new (v2):  sha256("ICSv2:" + stuid + ":" + uispsw).hexdigest(),  100_000 iter
   - legacy:    stuid + uispsw + dashscope + smtp                ,    10_000 iter
 """
@@ -66,6 +67,36 @@ def derive_new_password(stuid: str, uispsw: str) -> str:
     """
     raw = f"ICSv2:{stuid}:{uispsw}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def derive_custom_password(db_password: str) -> str:
+    """Derive a domain-separated encryption password from DB_PASSWORD."""
+    if not db_password:
+        raise ValueError("DB_PASSWORD must not be empty")
+    return hashlib.sha256(f"ICSdb:{db_password}".encode("utf-8")).hexdigest()
+
+
+def password_candidates(*, stuid: str = "", uispsw: str = "",
+                        db_password: str = "", previous_db_password: str = "",
+                        dashscope: str = "", smtp: str = "",
+                        include_legacy: bool = False) -> list[tuple[str, str, int]]:
+    """(label, derived password, iterations), newest first.
+
+    Previous keys are for one-time migration, never for writing new data.
+    """
+    keys = []
+    if db_password:
+        keys.append(("custom", derive_custom_password(db_password), NEW_ITERATIONS))
+    if previous_db_password and previous_db_password != db_password:
+        keys.append(("previous", derive_custom_password(previous_db_password), NEW_ITERATIONS))
+    if stuid and uispsw:
+        keys.append(("v2", derive_new_password(stuid, uispsw), NEW_ITERATIONS))
+        if include_legacy:
+            keys.append(("legacy", derive_legacy_password(stuid, uispsw, dashscope, smtp),
+                         LEGACY_ITERATIONS))
+    if not keys:
+        raise ValueError("Set DB_PASSWORD, or both STUID and UISPSW")
+    return keys
 
 
 def derive_legacy_password(stuid: str, uispsw: str,
@@ -125,9 +156,11 @@ def decrypt(blob: bytes, password: str,
 def decrypt_with_fallback(blob: bytes, *, stuid: str, uispsw: str,
                           dashscope: str = "",
                           smtp: str = "",
+                          db_password: str = "",
+                          previous_db_password: str = "",
                           validate: Callable[[bytes], bool] | None = None,
                           ) -> tuple[bytes, str]:
-    """Try v2 password first, fall back to legacy.
+    """Try custom and earlier passwords, falling back to legacy.
 
     Returns (plaintext, version_used) where version_used is "v2" or "legacy".
     Caller can use the version to decide whether to re-encrypt with the new key.
@@ -141,17 +174,15 @@ def decrypt_with_fallback(blob: bytes, *, stuid: str, uispsw: str,
 
     Raises ValueError if neither password produces a valid plaintext.
     """
-    new_pw = derive_new_password(stuid, uispsw)
-    try:
-        pt = decrypt(blob, new_pw, NEW_ITERATIONS)
-        if validate is None or validate(pt):
-            return pt, "v2"
-    except Exception:
-        pass
-    legacy_pw = derive_legacy_password(stuid, uispsw, dashscope, smtp)
-    pt = decrypt(blob, legacy_pw, LEGACY_ITERATIONS)
-    if validate is not None and not validate(pt):
-        raise ValueError(
-            "decryption produced bytes that did not pass plaintext validation"
-        )
-    return pt, "legacy"
+    for label, password, iterations in password_candidates(
+        stuid=stuid, uispsw=uispsw, db_password=db_password,
+        previous_db_password=previous_db_password,
+        dashscope=dashscope, smtp=smtp, include_legacy=True,
+    ):
+        try:
+            pt = decrypt(blob, password, iterations)
+            if validate is None or validate(pt):
+                return pt, label
+        except ValueError:
+            continue
+    raise ValueError("Database decryption failed. Check DB_PASSWORD or previous credentials")

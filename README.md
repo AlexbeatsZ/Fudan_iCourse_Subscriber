@@ -1,8 +1,8 @@
 # iCourse Subscriber V2
 
-自动监控复旦大学 iCourse 智慧教学平台的课程更新，对新课次的录播视频进行**语音转文字 + PPT OCR + AI 摘要**，并通过邮件推送到你的邮箱。
+自动监控复旦大学 iCourse 智慧教学平台的课程更新，对新课次录播执行**语音转文字 + PPT OCR**，将加密的课程数据保存在你自己仓库的 `data` 分支，并通过 GitHub Pages 浏览。
 
-部署在 GitHub Actions 上，每天定时运行，**零成本、免服务器、全自动**。
+部署在 GitHub Actions 上定时运行，无需自建服务器。**当前主工作流已停用自动 AI 摘要和 SMTP 邮件发送**；相关历史模块仍保留在仓库中。
 
 > [!NOTE]
 > 本项目严禁大规模传播（例如，不准分享到树洞、班级群、大群等地），否则信息办可能随时ban掉该项目。
@@ -15,19 +15,19 @@
 
 1. 登录你的复旦 iCourse 账号（通过 WebVPN）
 2. 检查这两门课是否有新的录播视频
-3. 如果有：提取音频 → 语音识别 → 提取 PPT 图片 → OCR 转写 → AI 生成课程笔记
-4. 将所有新课次的笔记汇总成**一封邮件**发送给你
-
-邮件包含专业排版的 Markdown 渲染内容（含 LaTeX 公式渲染）。如果老师提到了作业、考试、签到、组队等重要课程事项，会在笔记开头醒目标注。
+3. 如果有：提取音频 → 语音识别 → 提取 PPT 图片 → OCR 转写
+4. 加密分片数据库，更新你 Fork 仓库中的 `data` 分支，供网页查看
 
 
-## 快速部署（5 分钟）
+## 首次部署（Fork 用户必读）
 
 ### 第 1 步：Fork 本仓库
 
 点击页面右上角的 **Fork** 按钮，将仓库复制到你的 GitHub 账号下。
 
-### 第 2 步：配置 Secrets
+进入 Fork 仓库的 **Actions** 标签，先启用 GitHub Actions。Fork 默认不自动运行工作流。
+
+### 第 2 步：配置你自己的 Secrets
 
 进入你 Fork 后的仓库，点击 **Settings → Secrets and variables → Actions → New repository secret**，逐个添加以下 Secret：
 
@@ -36,16 +36,20 @@
 | `STUID` | ✅ | 复旦学号 | `22307110000` |
 | `UISPSW` | ✅ | UIS 统一身份认证密码 | `your_password` |
 | `COURSE_IDS` | ✅ | 要监控的课程 ID，多个用英文逗号分隔 | `35472,30251` |
-| `DASHSCOPE_API_KEY` | ⬜ | ModelScope 平台 API Key | `ms-xxxxxxxx` |
-| `DEEPSEEK_API_KEY` | ⬜ | DeepSeek API Key（推荐） | `sk-xxxxxxxx` |
-| `GEMINI_API_KEY` | ⬜ | Gemini API Key | `AIza...` |
-| `SMTP_EMAIL` | ✅ | 用于发送邮件的邮箱 | `123456@qq.com` |
-| `SMTP_PASSWORD` | ✅ | SMTP 授权码或应用专用密码（不是登录密码） | `abcdefghijklmnop` |
-| `RECEIVER_EMAIL` | ✅ | 接收摘要邮件的邮箱 | `you@m.fudan.edu.com` |
+| `DB_PASSWORD` | ⬜ | **独立数据库密码**；设置后不再依靠学号和 UIS 密码加密数据库 | 随机强密码（不要公开） |
+| `DB_PASSWORD_PREVIOUS` | ⬜ | 仅修改已有独立密码时临时配置旧密码，迁移后删除 | 旧数据库密码 |
+| `DASHSCOPE_API_KEY` | ⬜ | 保留给可选摘要模块 | `ms-xxxxxxxx` |
+| `DEEPSEEK_API_KEY` | ⬜ | 保留给可选摘要模块 | `sk-xxxxxxxx` |
+| `GEMINI_API_KEY` | ⬜ | 保留给可选摘要模块 | `AIza...` |
+| `SMTP_EMAIL` | ⬜ | 保留给单独的导出/邮件功能 | `123456@qq.com` |
+| `SMTP_PASSWORD` | ⬜ | SMTP 授权码，不是邮箱登录密码 | `abcdefghijklmnop` |
+| `RECEIVER_EMAIL` | ⬜ | 导出工作流的接收邮箱 | `you@example.com` |
 | `SMTP_HOST` | ⬜ | SMTP SSL 服务器（默认 QQ） | `smtp.gmail.com` |
 | `SMTP_PORT` | ⬜ | SMTP SSL 端口 | `465` |
 
-> 至少配置一个 LLM API Key（DASHSCOPE、DEEPSEEK 或 GEMINI）。程序按配置顺序自动回退尝试。如果需要选择其他的LLM供应商，可以在`src\runtime\config.py`路径下自定义供应商。
+**只有前三项必填。** 当前 ASR + OCR 主流程不需要 LLM API Key 或 SMTP。没有配置课程 ID 会直接报错，不会偷用原作者的课程。GitHub Actions 会自动使用当前 Fork 自己的仓库名，不需要配置 GitHub 仓库地址。
+
+独立密码建议使用密码管理器生成的长随机密码。GitHub 的 `data` 分支是公开的加密数据；密码过弱有离线猜解风险。
 
 ### 第 3 步：获取课程 ID
 
@@ -55,7 +59,7 @@
 
 多门课用英文逗号隔开：`35472,30251,40123`
 
-### 第 4 步：获取 API Key
+### 可选：获取 API Key（当前自动摘要功能未启用）
 
 选择一个或多个模型服务商：
 
@@ -65,18 +69,35 @@
 | **DeepSeek**（`DEEPSEEK_API_KEY`） | [DeepSeek Platform](https://platform.deepseek.com/) | 注册赠额度 |
 | **Gemini**（`GEMINI_API_KEY`） | [Google AI Studio](https://aistudio.google.com/) | flash模型每日免费额度 |
 
-### 第 5 步：配置邮件 SMTP
+### 可选：配置邮件 SMTP（当前自动发信功能未启用）
 
 - **QQ 邮箱**：保持默认 `smtp.qq.com:465`，在账户与安全设置中开启 SMTP 服务，将授权码填入 `SMTP_PASSWORD`。
 - **Gmail**：设置 `SMTP_HOST=smtp.gmail.com`、`SMTP_PORT=465`，开启两步验证并将 Google 应用专用密码填入 `SMTP_PASSWORD`。
 
-### 第 6 步：运行
+### 第 4 步：初始化数据库并运行
 
-- **自动运行**：默认每天 19:36（北京时间）自动执行
-- **手动触发**：进入仓库 → Actions → **iCourse Check** → Run workflow
-- **立即触发**：也可通过前端页面点击「触发订阅检查」按钮
+- **首次运行**：仓库 → Actions → **Single Run** → Run workflow；留空课程 ID 会使用你配置的 `COURSE_IDS` Secret
+- **确认初始化**：等待工作流完成，检查你自己的 Fork 是否出现 `data` 分支（含 `data/icourse-index.enc`）
+- **定时检查**：默认北京时间 06:00、12:00、18:00、24:00；也可手动运行 **iCourse Check**
 
-首次运行会处理所有已有录播，后续只处理新增课次。
+首次运行会处理有权限访问的已有录播，后续只处理新增课次。如果全部课程请求失败，工作流会明确报错。
+
+### 第 5 步：部署与连接网页
+
+进入 **Settings → Pages → Source → GitHub Actions**，再触发 **Deploy Frontend** 工作流。访问你自己的 `https://用户名.github.io/Fudan_iCourse_Subscriber/`，检查 Repo Owner 是否为你的账号。
+
+网页的 Connect 不是复旦 UIS 在线登录，而是**解密你自己的 `data` 分支**。首次连接必须先完成上面的初始化；设置了 `DB_PASSWORD` 时，只需填写该密码和用于 GitHub API 的 PAT，学号/UIS 密码可以留空。不设置独立密码时，沿用学号和 UIS 密码解密。
+
+网页不会将凭据长期保存在 localStorage；凭据仅在当前浏览器标签页会话保留，IndexedDB 仅缓存加密数据。
+
+### 已有数据库更换为独立密码
+
+1. 在仓库 Actions Secrets 新增 `DB_PASSWORD`，不要删除 `STUID` / `UISPSW`（学校登录仍需要它们）。
+2. 手动运行一次 **iCourse Check**（不要选择 `probe_only`）；程序会用旧学号密码读取原数据库，并用新密码重加密推送到 `data`。
+3. 工作流成功后，刷新网页，改用新的 `DB_PASSWORD` 连接。
+4. 日后更换已有独立密码时，先将旧密码放在 `DB_PASSWORD_PREVIOUS`，新密码放在 `DB_PASSWORD`，重复运行；成功后删除 `DB_PASSWORD_PREVIOUS`。
+
+**注意：** 如果旧密码丢失且无法使用旧学号/UIS 密码解密，程序不会清空旧数据库，而会失败并提示错误，以免数据意外丢失。本地 Windows 下载器若要解密云端字幕数据库，也需设置相同的 `DB_PASSWORD` 环境变量。
 
 ## 前端页面（索引与查看）
 
@@ -87,11 +108,11 @@
 访问 `https://你的用户名.github.io/Fudan_iCourse_Subscriber/`
 
 功能介绍：
-- **浏览器端解密**：输入你的凭据，浏览器用 WebCrypto 解密 sql.js 读取 shard 数据库，凭据不离开本地
+- **浏览器端解密**：使用独立数据库密码（可选）或旧学号密码方案，浏览器用 WebCrypto 解密 sql.js 读取 shard 数据库
 - **按课程/课次浏览**：查看每节课的转录和摘要内容
 - **导出 PDF**：通过 GitHub Actions 触发导出工作流，生成格式化课程笔记 PDF 并邮件发送
 
-> 前端页面需要你手动在 GitHub Pages 设置中开启（Settings → Pages → Source → GitHub Actions），然后触发一次 Deploy Frontend workflow 即可部署。
+> 注意：仓库里的加密数据属于各个 Fork 自己的 `data` 分支。进入原作者的 GitHub Pages，无法使用你的密码查看你自己 Fork 中的数据。
 
 > [!TIP]
 >

@@ -185,7 +185,17 @@
   <!-- ─── SETUP WIZARD ─── -->
   <div x-show="view === 'setup'" class="max-w-md mx-auto p-6 mt-8">
     <h2 class="text-xl font-bold text-gray-800 mb-1">iCourse Subscriber</h2>
-    <p class="text-sm text-gray-500 mb-6">Enter your credentials to connect to your encrypted database.</p>
+    <p class="text-sm text-gray-500 mb-4">连接当前仓库中已生成的加密数据库。这里不会登录复旦 UIS。</p>
+    <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-5 text-xs text-blue-900 space-y-2">
+      <p class="font-semibold">首次 Fork？请先初始化：</p>
+      <ol class="list-decimal pl-4 space-y-1">
+        <li>在你自己的 Fork 中启用 GitHub Actions。</li>
+        <li>在 Settings → Secrets and variables → Actions 配置 STUID、UISPSW、COURSE_IDS；DB_PASSWORD 可选。</li>
+        <li>运行 Actions → Single Run，等待自动创建 <code>data</code> 分支，再回来连接。</li>
+      </ol>
+      <a :href="'https://github.com/' + repoOwner + '/' + repoName + '/actions/workflows/single_run.yml'"
+         target="_blank" rel="noopener noreferrer" class="underline inline-block">打开当前仓库的初始化工作流</a>
+    </div>
 
     <div class="space-y-4">
       <!-- Repo info -->
@@ -214,14 +224,21 @@
         <p class="text-xs text-gray-400 mt-1">Scope: this repo only, Contents: Read and Write</p>
       </div>
 
-      <!-- 4 Secrets -->
+      <!-- Database decryption credentials -->
       <div>
-        <label class="block text-xs text-gray-500 mb-1">STUID (Student ID)</label>
+        <label class="block text-xs text-gray-500 mb-1">DB_PASSWORD（可选，独立数据库密码）</label>
+        <input x-model="setup.dbPassword" type="password" autocomplete="off"
+               placeholder="已设置 DB_PASSWORD Secret 时填写"
+               class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 focus:outline-none">
+        <p class="text-xs text-gray-400 mt-1">设置后可只用这个密码解密数据库；不设置则使用下面的学号和 UIS 密码。</p>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">STUID (Student ID，旧密钥兼容)</label>
         <input x-model="setup.stuid" type="text" placeholder="22307110xxx"
                class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 focus:outline-none">
       </div>
       <div>
-        <label class="block text-xs text-gray-500 mb-1">UISPSW (UIS Password)</label>
+        <label class="block text-xs text-gray-500 mb-1">UISPSW (UIS Password，旧密钥兼容)</label>
         <input x-model="setup.uispsw" type="password"
                class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 focus:outline-none">
       </div>
@@ -240,6 +257,7 @@
 
       <!-- Error -->
       <p x-show="setupError" x-text="setupError" class="text-sm text-red-600 bg-red-50 rounded-lg p-3"></p>
+      <p class="text-xs text-gray-400">凭据只保留在当前浏览器标签页，关闭后需要重新输入。</p>
 
       <!-- Submit -->
       <button @click="testAndSave()" :disabled="setupTesting"
@@ -735,6 +753,7 @@
     <div class="space-y-3">
       <template x-for="field in [
         {key: 'token', label: 'GitHub PAT'},
+        {key: 'dbPassword', label: 'DB_PASSWORD（可选）'},
         {key: 'stuid', label: 'STUID'},
         {key: 'uispsw', label: 'UISPSW'},
       ]" :key="field.key">

@@ -6,7 +6,9 @@
  *   Bytes  8-15: 8-byte random salt
  *   Bytes 16+:   AES-256-CBC ciphertext (PKCS7 padded)
  *
- * Two key flavors:
+ * Key flavors:
+ *   custom: password = sha256("ICSdb:" + DB_PASSWORD)        (hex)
+ *           PBKDF2 iterations: 100000
  *   v2:     password = sha256("ICSv2:" + stuid + ":" + uispsw)  (hex)
  *           PBKDF2 iterations: 100000
  *   legacy: password = stuid + uispsw + dashscope + smtp        (concat)
@@ -93,6 +95,29 @@ async function _icsBuildPasswordV2(secrets) {
   return await _sha256Hex("ICSv2:" + secrets.stuid + ":" + secrets.uispsw);
 }
 
+async function _icsBuildDatabasePassword(secrets) {
+  if (secrets.dbPassword) {
+    return await _sha256Hex("ICSdb:" + secrets.dbPassword);
+  }
+  if (!secrets.stuid || !secrets.uispsw) {
+    throw new Error("请输入数据库密码，或同时填写学号和 UIS 密码。");
+  }
+  return await _icsBuildPasswordV2(secrets);
+}
+
+async function _icsPasswordCandidates(secrets) {
+  var result = [];
+  if (secrets.dbPassword) {
+    result.push({ label: "custom", password: await _icsBuildDatabasePassword(secrets), iterations: NEW_ITERATIONS });
+  }
+  if (secrets.stuid && secrets.uispsw) {
+    result.push({ label: "v2", password: await _icsBuildPasswordV2(secrets), iterations: NEW_ITERATIONS });
+    result.push({ label: "legacy", password: _icsBuildPasswordLegacy(secrets), iterations: LEGACY_ITERATIONS });
+  }
+  if (!result.length) throw new Error("请输入数据库密码，或同时填写学号和 UIS 密码。");
+  return result;
+}
+
 function _icsBuildPasswordLegacy(secrets) {
   return secrets.stuid + secrets.uispsw +
          (secrets.dashscope || "") + (secrets.smtp || "");
@@ -126,32 +151,28 @@ function _icsIsJsonObj(pt) {
 }
 
 async function _icsDecryptWithFallback(encryptedBytes, secrets, validate) {
-  try {
-    var pwV2 = await _icsBuildPasswordV2(secrets);
-    var ptV2 = await _icsDecrypt(encryptedBytes, pwV2, NEW_ITERATIONS);
-    if (!validate || validate(ptV2)) {
-      return { data: ptV2, version: "v2" };
+  var candidates = await _icsPasswordCandidates(secrets);
+  for (var candidate of candidates) {
+    try {
+      var pt = await _icsDecrypt(encryptedBytes, candidate.password, candidate.iterations);
+      if (!validate || validate(pt)) {
+        return { data: pt, version: candidate.label, password: candidate.password };
+      }
+    } catch (e) {
+      // Try the next candidate.
     }
-  } catch (e) {
-    // fall through to legacy
   }
-  var pwLegacy = _icsBuildPasswordLegacy(secrets);
-  var ptLegacy = await _icsDecrypt(encryptedBytes, pwLegacy, LEGACY_ITERATIONS);
-  if (validate && !validate(ptLegacy)) {
-    throw new Error(
-      "Decryption produced bytes that did not pass plaintext validation. " +
-      "Wrong credentials?"
-    );
-  }
-  return { data: ptLegacy, version: "legacy" };
+  throw new Error("数据库解密失败：请检查 DB_PASSWORD 或旧学号密码。");
 }
 
 window.ICS.crypto = {
   decrypt: _icsDecrypt,
   encrypt: _icsEncrypt,
-  buildPassword: _icsBuildPasswordV2,
+  buildPassword: _icsBuildDatabasePassword,
+  buildDatabasePassword: _icsBuildDatabasePassword,
   buildPasswordV2: _icsBuildPasswordV2,
   buildPasswordLegacy: _icsBuildPasswordLegacy,
+  passwordCandidates: _icsPasswordCandidates,
   decryptWithFallback: _icsDecryptWithFallback,
   isSqlite: _icsIsSqlite,
   isGzip: _icsIsGzip,

@@ -1,6 +1,7 @@
 from contextlib import closing
 """ROG video downloads and small encrypted cloud transcript synchronization."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -68,7 +69,7 @@ def login():
 
 def cloud_database(config):
     import requests
-    from src.data.crypto_box import derive_new_password
+    from src.data.crypto_box import password_candidates
     from src.data.sharder import load_index, reassemble_database
     repo = config["repository"]
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
@@ -85,7 +86,18 @@ def cloud_database(config):
         response.raise_for_status()
         sha = response.json()["sha"]
         cache = RUNTIME/"cloud.db"
-        if cache.exists() and read_json(RUNTIME/"cloud-version.json", {}).get("sha") == sha:
+        account, password = credentials()
+        keys = password_candidates(
+            stuid=account, uispsw=password,
+            db_password=os.environ.get("DB_PASSWORD", ""),
+            previous_db_password=os.environ.get("DB_PASSWORD_PREVIOUS", ""),
+        )
+        preferred_key = keys[0][1]
+        # A cache from a different key must not bypass credential verification.
+        key_id = hashlib.sha256(("cache:" + preferred_key).encode()).hexdigest()
+        version = read_json(RUNTIME/"cloud-version.json", {})
+        if cache.exists() and version.get("sha") == sha and version.get("key_id") == key_id:
+            config["_needs_rekey"] = version.get("needs_rekey", False)
             return cache
         response = requests.get(f"https://codeload.github.com/{repo}/zip/{sha}", timeout=120)
         response.raise_for_status()
@@ -101,16 +113,24 @@ def cloud_database(config):
                 dest = temp/relative
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(member))
-        account, password = credentials()
-        key = derive_new_password(account, password)
-        index = load_index(str(temp/"icourse-index.enc"), key)
         result = temp/"cloud.db"
-        reassemble_database(index, str(temp/"shards"), str(result), key)
+        for label, key, _ in keys:
+            try:
+                index = load_index(str(temp/"icourse-index.enc"), key)
+                reassemble_database(index, str(temp/"shards"), str(result), key)
+                break
+            except (ValueError, UnicodeDecodeError):
+                continue
+        else:
+            raise ValueError("云端数据库解密失败，请检查 DB_PASSWORD（若已设置）")
         with closing(sqlite3.connect(result)) as db:
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise ValueError("云端数据库不完整")
         result.replace(cache)
-        write_json(RUNTIME/"cloud-version.json", {"sha": sha})
+        config["_needs_rekey"] = label != ("custom" if os.environ.get("DB_PASSWORD") else "v2")
+        write_json(RUNTIME/"cloud-version.json", {
+            "sha": sha, "key_id": key_id, "needs_rekey": config["_needs_rekey"],
+        })
         return cache
 
 

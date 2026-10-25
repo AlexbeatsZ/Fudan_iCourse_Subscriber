@@ -26,12 +26,12 @@ async function _gunzip(compressedBytes) {
   return result;
 }
 
-/* ── IndexedDB cache for decrypted shards (keyed by git blob sha) ────
-   Shard contents are content-addressed: a shard's git blob sha changes
-   only when its bytes change, so we can keep decrypted bytes around and
-   skip the network + decrypt + decompress chain on subsequent loads.
+/* ── IndexedDB cache for ENCRYPTED shards (keyed by git blob sha) ────
+   Never persist decrypted course data.  The former v2 cache held plaintext
+   SQLite blobs, which allowed later visits to bypass password validation.
 */
-var _idbName = "ics_cache_v2";
+var _idbName = "ics_cache_v3";
+try { indexedDB.deleteDatabase("ics_cache_v2"); } catch (e) {}
 // Cache the open Promise — every shard load fires _idbGet + _idbPut, and
 // without this each call opens its own connection.  Reopening costs ~10ms
 // on cold caches and accumulates fast over 100+ shard reads.
@@ -72,10 +72,11 @@ async function _idbPut(key, value) {
   });
 }
 
-/* ── Credential helpers (localStorage) ── */
+/* ── Credentials live only for this browser tab, never in localStorage. ── */
 const _LS = "ics_";
-const _loadCreds = () => { try { return JSON.parse(localStorage.getItem(_LS + "creds")); } catch { return null; } };
-const _saveCreds = (c) => localStorage.setItem(_LS + "creds", JSON.stringify(c));
+try { localStorage.removeItem(_LS + "creds"); } catch (e) {}
+const _loadCreds = () => { try { return JSON.parse(sessionStorage.getItem(_LS + "creds")); } catch { return null; } };
+const _saveCreds = (c) => sessionStorage.setItem(_LS + "creds", JSON.stringify(c));
 const _loadSettings = () => { try { return JSON.parse(localStorage.getItem(_LS + "settings")) || {}; } catch { return {}; } };
 const _saveSettings = (s) => localStorage.setItem(_LS + "settings", JSON.stringify(s));
 /* Starred-course IDs are per-browser (localStorage). The school side
@@ -137,13 +138,14 @@ const _DETAIL_VIEW_LABEL = {
 
 /* ── Sharded loading helpers ── */
 async function _loadShard(owner, repo, entry, password, token) {
-  // Returns { bytes, downloaded: bool } — downloaded=true means we hit
-  // the network; false means IndexedDB cache hit (instant).
-  var cacheKey = "shard:" + entry.sha;
-  var cached = await _idbGet(cacheKey);
-  if (cached) return { bytes: cached, downloaded: false };
-
-  var encBytes = await ICS.github.fetchBlobBytes(owner, repo, entry.sha, token);
+  // Ciphertext may be cached, but decrypt every time with the supplied key.
+  var cacheKey = "encrypted-shard:" + entry.sha;
+  var encBytes = await _idbGet(cacheKey);
+  var downloaded = !encBytes;
+  if (!encBytes) {
+    encBytes = await ICS.github.fetchBlobBytes(owner, repo, entry.sha, token);
+    await _idbPut(cacheKey, encBytes);
+  }
   var gzipped = await ICS.crypto.decrypt(
     encBytes, password, ICS.crypto.NEW_ITERATIONS,
   );
@@ -153,48 +155,32 @@ async function _loadShard(owner, repo, entry, password, token) {
     );
   }
   var dbBytes = await _gunzip(gzipped);
-  await _idbPut(cacheKey, dbBytes);
-  return { bytes: dbBytes, downloaded: true };
+  return { bytes: dbBytes, downloaded: downloaded };
 }
 
-async function _fetchAndDecryptIndex(owner, repo, indexSha, password, token) {
-  var indexEnc = await ICS.github.fetchBlobBytes(owner, repo, indexSha, token);
-  var indexBytes = await ICS.crypto.decrypt(
-    indexEnc, password, ICS.crypto.NEW_ITERATIONS,
+async function _fetchAndDecryptIndex(owner, repo, indexSha, secrets, token) {
+  var cacheKey = "encrypted-index:" + indexSha;
+  var indexEnc = await _idbGet(cacheKey);
+  if (!indexEnc) {
+    indexEnc = await ICS.github.fetchBlobBytes(owner, repo, indexSha, token);
+    await _idbPut(cacheKey, indexEnc);
+  }
+  var result = await ICS.crypto.decryptWithFallback(
+    indexEnc, secrets, ICS.crypto.isJsonObj,
   );
-  if (!ICS.crypto.isJsonObj(indexBytes)) {
-    throw new Error("Shard index decrypted to non-JSON bytes — wrong key?");
-  }
-  return JSON.parse(new TextDecoder().decode(indexBytes));
+  return {
+    index: JSON.parse(new TextDecoder().decode(result.data)),
+    password: result.password,
+  };
 }
 
-async function _loadFromShardManifest(manifest, owner, repo, password, token, progress) {
-  // 0) Check if the full merged DB is already cached for this commit SHA.
-  //    If the data branch hasn't moved, we can skip ALL shard loading.
-  var mergedKey = "merged:" + manifest.commitSha;
-  var cachedMerged = await _idbGet(mergedKey);
-  if (cachedMerged) {
-    await ICS.db.initDB(cachedMerged);
-    return;
-  }
-
-  // 1) Load index: check if index SHA matches cached → reuse decrypted JSON;
-  //    otherwise fetch + decrypt + cache for next time.
-  var cachedIndexSha = null;
-  try { cachedIndexSha = localStorage.getItem(_LS + "indexSha"); } catch (e) {}
-
-  var index = null;
-  if (manifest.index.sha === cachedIndexSha) {
-    index = await _idbGet("index:v2:" + manifest.index.sha);
-  }
-
-  if (!index) {
-    index = await _fetchAndDecryptIndex(
-      owner, repo, manifest.index.sha, password, token,
-    );
-    await _idbPut("index:v2:" + manifest.index.sha, index);
-    try { localStorage.setItem(_LS + "indexSha", manifest.index.sha); } catch (e) {}
-  }
+async function _loadFromShardManifest(manifest, owner, repo, secrets, token, progress) {
+  // Index validation selects the correct key (custom or legacy v2).
+  var opened = await _fetchAndDecryptIndex(
+    owner, repo, manifest.index.sha, secrets, token,
+  );
+  var index = opened.index;
+  var password = opened.password;
 
   // 2) Pull every shard — skip cache hits, download only changed ones.
   await ICS.db.initEmpty();
@@ -216,12 +202,7 @@ async function _loadFromShardManifest(manifest, owner, repo, password, token, pr
   }
   if (progress && downloaded === 0) progress(0, total, "");
 
-  // 3) Cache the merged DB in IndexedDB so next load with the same commit
-  //    SHA skips EVERYTHING — no index fetch, no shard iteration, no merge.
-  try {
-    var merged = ICS.db.exportDB();
-    await _idbPut(mergedKey, merged);
-  } catch (e) { /* non-critical — silently skip */ }
+  // Do not persist the merged plaintext database.
 }
 
 async function _loadFromLegacyBlob(manifest, owner, repo, secrets, token) {
@@ -257,7 +238,7 @@ document.addEventListener("alpine:init", () => {
     searchPage: 1, searchHasMore: false,
     searchDomains: { summary: true, transcript: true, ocr: true },
     commitSha: null,
-    setup: { token: "", stuid: "", uispsw: "" },
+    setup: { token: "", stuid: "", uispsw: "", dbPassword: "" },
     setupError: "", setupTesting: false,
     settingsForm: {}, showSecrets: {},
     exportDialogOpen: false, exportSelection: {}, exportingPdf: false,
@@ -308,12 +289,10 @@ document.addEventListener("alpine:init", () => {
 
         if (manifest.format === "sharded") {
           this.loadingMsg = "Deriving decryption key...";
-          var pw = await ICS.crypto.buildPasswordV2(creds);
-
           this.loadingMsg = "Loading index...";
           var self = this;
           await _loadFromShardManifest(
-            manifest, this.repoOwner, this.repoName, pw, creds.token,
+            manifest, this.repoOwner, this.repoName, creds, creds.token,
             function (i, n, name) {
               if (i === 0) {
                 self.loadingMsg = "All " + n + " shards unchanged — instant load.";
@@ -693,17 +672,9 @@ document.addEventListener("alpine:init", () => {
           this.repoOwner, this.repoName, this.dataBranch, this.setup.token,
         );
         if (manifest.format === "sharded") {
-          // Probe the index decryption to validate creds before we save.
-          var pw = await ICS.crypto.buildPasswordV2(this.setup);
-          var indexEnc = await ICS.github.fetchBlobBytes(
-            this.repoOwner, this.repoName, manifest.index.sha, this.setup.token,
+          await _fetchAndDecryptIndex(
+            this.repoOwner, this.repoName, manifest.index.sha, this.setup, this.setup.token,
           );
-          var indexPt = await ICS.crypto.decrypt(
-            indexEnc, pw, ICS.crypto.NEW_ITERATIONS,
-          );
-          if (!ICS.crypto.isJsonObj(indexPt)) {
-            throw new Error("凭据验证失败：索引解密结果不像 JSON。");
-          }
         } else {
           var encBytes = await ICS.github.fetchBlobBytes(
             this.repoOwner, this.repoName, manifest.legacy.sha, this.setup.token,
@@ -719,7 +690,11 @@ document.addEventListener("alpine:init", () => {
         _saveSettings({ owner: this.repoOwner, repo: this.repoName, branch: this.dataBranch });
         this.commitSha = manifest.commitSha;
         await this._loadDB({ ...this.setup });
-      } catch (e) { this.setupError = e.message; }
+      } catch (e) {
+        this.setupError = /Branch 'data' not found|Branch .* not found/.test(e.message)
+          ? "尚未初始化数据库。请先在 Fork 仓库配置 Actions Secrets，运行 Single Run 生成 data 分支，再回来连接。"
+          : e.message;
+      }
       finally { this.setupTesting = false; }
     },
 
@@ -737,6 +712,7 @@ document.addEventListener("alpine:init", () => {
     },
     clearAllData() {
       if (!confirm("Clear all saved credentials?")) return;
+      sessionStorage.removeItem(_LS + "creds");
       localStorage.removeItem(_LS + "creds");
       localStorage.removeItem(_LS + "settings");
       // Close the cached connection before deleting — Chrome/Firefox block
