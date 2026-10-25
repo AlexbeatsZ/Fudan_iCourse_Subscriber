@@ -91,11 +91,8 @@ jobs:
             fi
           done
 
-      # NOTE: COURSE_IDS is deliberately NOT touched here.  GitHub's
-      # Secrets API is write-only (values can never be read back), so a
-      # workflow cannot remove one ID from the list.  The frontend's
-      # subscription editor owns that secret — it re-encrypts and PUTs
-      # the full list whenever the user changes their subscription.
+      # Deleting archived course data does not unsubscribe from the course.
+      # Preserve data/subscriptions.json when publishing the new shards.
 
       - name: Re-shard and push
         env:
@@ -124,7 +121,14 @@ jobs:
           git checkout -q -b data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          expected=$(git ls-remote origin refs/heads/data | cut -f1)
+          if [ -n "$expected" ]; then
+            git fetch --depth=1 origin data
+            if git cat-file -e FETCH_HEAD:data/subscriptions.json 2>/dev/null; then
+              git show FETCH_HEAD:data/subscriptions.json > data/subscriptions.json
+            fi
+          fi
           git add data/
           git commit -q -m "chore: delete ${{ inputs.sub_ids != '' && 'lecture(s)' || 'course(s)' }} ${{ inputs.sub_ids || inputs.course_ids }}"
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          git push --force origin data
+          git push --force-with-lease="refs/heads/data:${expected}" origin data

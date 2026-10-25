@@ -156,17 +156,6 @@ def merge(local_path: str, remote_path: str):
                 """)
 
     finally:
-        # Persist COURSE_IDS from the CI secret into the meta table so
-        # the frontend can read the current subscription list from the
-        # metadata shard without relying on localStorage alone.
-        course_ids_env = os.environ.get("COURSE_IDS", "")
-        if course_ids_env:
-            conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) "
-                "VALUES ('course_ids', ?)", (course_ids_env,),
-            )
-            conn.commit()
-
         try:
             conn.execute("DETACH DATABASE local")
         except sqlite3.Error:

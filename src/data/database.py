@@ -68,7 +68,7 @@ class Database:
                     )
 
     def write_meta(self, key: str, value: str):
-        """Persist a key-value pair (e.g. COURSE_IDS from CI secret)."""
+        """Persist a key-value pair in encrypted database metadata."""
         with self._lock, self.conn:
             self.conn.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",

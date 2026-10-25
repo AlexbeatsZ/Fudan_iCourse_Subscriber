@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       course_ids:
-        description: "Optional course IDs; blank uses your COURSE_IDS secret"
+        description: "Course IDs for one run; required on first run, blank uses data branch subscriptions"
         required: false
         default: ""
         type: string
@@ -40,6 +40,16 @@ jobs:
       - name: Install Python dependencies
         if: steps.cache-pip.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
+
+      - name: Load subscriptions from data branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SINGLE_RUN_COURSE_IDS: ${{ inputs.course_ids }}
+          FUDAN_STUID: ${{ secrets.STUID }}
+          FUDAN_UISPSW: ${{ secrets.UISPSW }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
+        run: python scripts/resolve_subscriptions.py --mode single
 
       - name: Install ffmpeg
         run: |
@@ -129,7 +139,6 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ inputs.course_ids || secrets.COURSE_IDS }}
           USE_OFFICIAL_TRANSCRIPT: ${{ inputs.use_official_transcript && '1' || '' }}
         run: |
           python -u main.py
@@ -141,7 +150,6 @@ jobs:
           UISPSW: ${{ secrets.UISPSW }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
-          SUBSCRIBED_COURSE_IDS: ${{ secrets.COURSE_IDS }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -152,7 +160,7 @@ jobs:
           fi
 
           AFTER=$(md5sum data/icourse.db | cut -d' ' -f1)
-          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ] && [ "${{ steps.decode.outputs.needs_rekey }}" != "true" ]; then
+          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ] && [ "${{ steps.decode.outputs.needs_rekey }}" != "true" ] && [ "$SUBSCRIPTIONS_NEEDS_MIGRATION" != "1" ]; then
             echo "Database unchanged, skipping commit."
             exit 0
           fi
@@ -189,7 +197,14 @@ jobs:
           git checkout -q -b data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          expected=$(git ls-remote origin refs/heads/data | cut -f1)
+          if [ -n "$expected" ]; then
+            git fetch --depth=1 origin data
+          fi
+          if [ -z "$expected" ] || ! git show FETCH_HEAD:data/subscriptions.json > data/subscriptions.json 2>/dev/null; then
+            python "$GITHUB_WORKSPACE/scripts/write_subscriptions.py" data/subscriptions.json
+          fi
           git add data/
           git commit -q -m "chore: update encrypted database (sharded v2)"
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          git push --force origin data
+          git push --force-with-lease="refs/heads/data:${expected}" origin data

@@ -190,8 +190,8 @@
       <p class="font-semibold">首次 Fork？请先初始化：</p>
       <ol class="list-decimal pl-4 space-y-1">
         <li>在你自己的 Fork 中启用 GitHub Actions。</li>
-        <li>在 Settings → Secrets and variables → Actions 配置 STUID、UISPSW、COURSE_IDS；DB_PASSWORD 可选。</li>
-        <li>运行 Actions → Single Run，等待自动创建 <code>data</code> 分支，再回来连接。</li>
+        <li>在 Settings → Secrets and variables → Actions 配置 STUID、UISPSW；DB_PASSWORD 可选，不需要 COURSE_IDS Secret。</li>
+        <li>运行 Actions → Single Run，首次填写课程 ID，等待自动创建 <code>data</code> 分支，再回来连接。</li>
       </ol>
       <a :href="'https://github.com/' + repoOwner + '/' + repoName + '/actions/workflows/single_run.yml'"
          target="_blank" rel="noopener noreferrer" class="underline inline-block">打开当前仓库的初始化工作流</a>
@@ -721,10 +721,10 @@
 
         <!-- Action buttons -->
         <div class="mt-4 flex items-center justify-between gap-2">
-          <button @click="saveSubscriptions()" :disabled="subsSaving"
+          <button @click="saveSubscriptions()" :disabled="subsSaving || subsLoading || subsLoadError"
                   class="px-5 py-2.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2">
             <div x-show="subsSaving" class="spinner !w-4 !h-4 !border-2 !border-white/30 !border-t-white"></div>
-            <span x-text="subsSaving ? '加密上传中…' : '保存订阅到 Secret'"></span>
+            <span x-text="subsLoading ? '正在读取…' : subsSaving ? '保存中…' : '保存订阅到 data 分支'"></span>
           </button>
           <label class="flex items-center gap-1.5 cursor-pointer select-none"
                  :class="singleRunIds.length === 0 ? 'opacity-40' : ''">
@@ -740,8 +740,8 @@
           </button>
         </div>
         <p class="text-xs text-gray-400 mt-1">
-          单次运行会触发 workflow 处理选中课程，结果发送到 RECEIVER_EMAIL。
-          保存需要 GitHub PAT 具备 <strong>Secrets: Read and write</strong> 权限。
+          单次运行不会改变定时订阅；课程列表保存在公开的 data 分支。
+          保存需要 GitHub PAT 具备 <strong>Contents: Read and write</strong> 权限。
         </p>
       </div>
   </div>
@@ -937,11 +937,6 @@
 <!-- KaTeX + auto-render -->
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js"></script>
-<!-- libsodium + libsodium-wrappers (sealed-box encryption for GitHub Secrets PUT).
-     The wrapper depends on window.libsodium being defined first, and exposes
-     itself as window.sodium. Loading order matters; do not mark these defer. -->
-<script src="https://cdn.jsdelivr.net/npm/libsodium@0.7.15/dist/modules/libsodium.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.15/dist/modules/libsodium-wrappers.min.js"></script>
 <!-- App scripts (defer, in order, before Alpine) -->
 <script defer src="js/crypto.js"></script>
 <script defer src="js/github.js"></script>

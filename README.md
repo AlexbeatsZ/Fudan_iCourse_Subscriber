@@ -35,7 +35,6 @@
 |---|---|---|---|
 | `STUID` | ✅ | 复旦学号 | `22307110000` |
 | `UISPSW` | ✅ | UIS 统一身份认证密码 | `your_password` |
-| `COURSE_IDS` | ✅ | 要监控的课程 ID，多个用英文逗号分隔 | `35472,30251` |
 | `DB_PASSWORD` | ⬜ | **独立数据库密码**；设置后不再依靠学号和 UIS 密码加密数据库 | 随机强密码（不要公开） |
 | `DB_PASSWORD_PREVIOUS` | ⬜ | 仅修改已有独立密码时临时配置旧密码，迁移后删除 | 旧数据库密码 |
 | `DASHSCOPE_API_KEY` | ⬜ | 保留给可选摘要模块 | `ms-xxxxxxxx` |
@@ -47,7 +46,7 @@
 | `SMTP_HOST` | ⬜ | SMTP SSL 服务器（默认 QQ） | `smtp.gmail.com` |
 | `SMTP_PORT` | ⬜ | SMTP SSL 端口 | `465` |
 
-**只有前三项必填。** 当前 ASR + OCR 主流程不需要 LLM API Key 或 SMTP。没有配置课程 ID 会直接报错，不会偷用原作者的课程。GitHub Actions 会自动使用当前 Fork 自己的仓库名，不需要配置 GitHub 仓库地址。
+**只有 `STUID` 和 `UISPSW` 两项必填。** 当前 ASR + OCR 主流程不需要 LLM API Key 或 SMTP。**`COURSE_IDS` Secret 已弃用**：订阅列表保存在当前 Fork 的公开 `data/subscriptions.json`，而不是存入 Secrets。GitHub Actions 会自动使用当前 Fork 自己的仓库名。
 
 独立密码建议使用密码管理器生成的长随机密码。GitHub 的 `data` 分支是公开的加密数据；密码过弱有离线猜解风险。
 
@@ -57,7 +56,7 @@
 
 ![课程id如图所示](docs/courseid.png)
 
-多门课用英文逗号隔开：`35472,30251,40123`
+多门课用英文逗号隔开：`35472,30251,40123`。课程 ID 不属于秘密信息，会明文保存在 `data` 分支。
 
 ### 可选：获取 API Key（当前自动摘要功能未启用）
 
@@ -76,11 +75,13 @@
 
 ### 第 4 步：初始化数据库并运行
 
-- **首次运行**：仓库 → Actions → **Single Run** → Run workflow；留空课程 ID 会使用你配置的 `COURSE_IDS` Secret
-- **确认初始化**：等待工作流完成，检查你自己的 Fork 是否出现 `data` 分支（含 `data/icourse-index.enc`）
+- **首次运行**：仓库 → Actions → **Single Run** → Run workflow，**必须填写自己的课程 ID**（用英文逗号分隔）。这一步会创建数据库和 `data/subscriptions.json`，不需要事先手动建分支。
+- **确认初始化**：等待工作流完成，检查你自己的 Fork 是否出现 `data` 分支（含 `data/icourse-index.enc` 和 `data/subscriptions.json`）
 - **定时检查**：默认北京时间 06:00、12:00、18:00、24:00；也可手动运行 **iCourse Check**
 
-首次运行会处理有权限访问的已有录播，后续只处理新增课次。如果全部课程请求失败，工作流会明确报错。
+首次运行会处理有权限访问的已有录播，后续只处理新增课次。尚未初始化订阅时，定时巡检会直接跳过并提示需要运行 Single Run，不再报 HTTP 422。之后可以通过网页的**订阅编辑器**添加或移除课程，点击「保存订阅到 data 分支」即可；不会修改 GitHub Secrets。单次运行仍可以通过输入课程 ID 临时处理别的课程，不改变定时订阅。
+
+旧用户升级时，如果 `data/subscriptions.json` 尚不存在，工作流会优先从原有加密数据库的 `subscribed_course_ids` 元数据迁移并保存它。因此可以在确认迁移成功后删除旧 `COURSE_IDS` Secret。如果旧数据库没有记录订阅清单，请通过网页订阅编辑器保存一次，或者首次在 Single Run 中输入课程 ID。
 
 ### 第 5 步：部署与连接网页
 
@@ -248,7 +249,7 @@ Schema 迁移：新增列时，旧的 shard 与新的 schema 之间存在列数�
 
 解密凭证（STUID + UISPSW）通过 PBKDF2 派生密钥，不经过网络传输，在浏览器本地内存中完成解密。
 
-订阅编辑器解决了一个特殊的约束：GitHub Actions Secrets API 只支持写入，不支持读取——无法通过 API 获知当前 COURSE_IDS 的值。方案采用三层数据源：数据库 `courses` 表（实际运行过的课程）提供默认订阅状态；localStorage `lastSubscribed` 维护用户前次编辑后的状态；保存时通过 GitHub API 将选择列表写入 `COURSE_IDS` Secret。
+订阅编辑器直接读写当前 Fork 的 `data/subscriptions.json`。列表可读取、可修改，且即使未产生新录播，新增的课程也会在下一次定时巡检中被检查。旧版本的加密数据库元数据只作为一次性迁移来源；浏览器不再依赖 localStorage 猜测 Secret 的当前内容。由于后台更新数据库时会重建数据分支，发布脚本会在推送前读取并保留最新的订阅 JSON，并检查分支版本以防覆盖同时发生的网页编辑。
 
 ### 技术方法总结
 

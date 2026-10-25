@@ -115,103 +115,59 @@ async function _fetchShardManifest(owner, repo, branch, token) {
   };
 }
 
-/* ── Actions secrets API ────────────────────────────────────────────────
-   Reads/writes repository-level Action secrets.  The encryption is
-   libsodium ``crypto_box_seal`` against a per-repo public key — same
-   scheme GitHub's REST docs show.  Requires the PAT to grant
-   ``Secrets: Read and write`` (the repo-level secrets permission, NOT
-   the org-level one).  Without that scope you get 403 from both endpoints.
-
-   We rely on libsodium-wrappers being loaded as a side-effect on the
-   page (it's listed in index.html before this script).  If the user
-   landed on a page that didn't include it, _ensureSodium() throws.
+/* ── Public subscriptions on the data branch ────────────────────────────
+   PAT requires Contents: Read and write only; editing the file uses its
+   known blob SHA for GitHub's optimistic-concurrency conflict detection.
 */
 
-let _sodiumPromise = null;
-function _ensureSodium() {
-  if (!_sodiumPromise) {
-    if (typeof window.sodium === "undefined" || !window.sodium.ready) {
-      throw new Error(
-        "libsodium-wrappers not loaded — make sure both libsodium and " +
-        "libsodium-wrappers CDN <script> tags are present before js/github.js"
-      );
-    }
-    _sodiumPromise = window.sodium.ready.then(() => window.sodium);
-  }
-  return _sodiumPromise;
+function _subscriptionsUrl(owner, repo) {
+  return `${_GH_API}/repos/${owner}/${repo}/contents/data/subscriptions.json`;
 }
 
-async function _getRepoPublicKey(owner, repo, token) {
-  // Returns { key, key_id } where key is base64-encoded libsodium public key.
-  const res = await fetch(
-    `${_GH_API}/repos/${owner}/${repo}/actions/secrets/public-key`,
-    { headers: _ghHeaders(token) }
-  );
-  if (res.status === 403 || res.status === 404) {
-    const body = await res.text();
-    throw new Error(
-      "无法读取仓库 Secrets 公钥。请确认你的 GitHub PAT 已开启 " +
-      "Secrets: Read and write 权限（这是 fine-grained PAT 的独立条目，" +
-      "不包含在 Contents 或 Actions 里）。" +
-      `服务端返回：${res.status} ${body}`
-    );
+async function _getSubscriptions(owner, repo, token) {
+  const res = await fetch(`${_subscriptionsUrl(owner, repo)}?ref=data`, {
+    headers: _ghHeaders(token),
+  });
+  if (res.status === 404) return null; // Old data branch, not yet migrated.
+  if (!res.ok) throw new Error(`无法读取订阅列表：GitHub HTTP ${res.status}`);
+  const file = await res.json();
+  if (file.encoding !== "base64") throw new Error("不支持的订阅配置文件编码");
+  const decoded = atob(file.content.replace(/\s/g, ""));
+  const config = JSON.parse(decoded);
+  if (!Array.isArray(config.course_ids) ||
+      !config.course_ids.every((id) => /^\d+$/.test(String(id)))) {
+    throw new Error("data/subscriptions.json 格式错误：需要数字 ID 数组");
   }
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`GitHub API error ${res.status}: ${body}`);
-  }
-  return await res.json();
+  return { ids: [...new Set(config.course_ids.map(String))], sha: file.sha };
 }
 
-async function _putRepoSecret(owner, repo, token, secretName,
-                              encryptedB64, keyId) {
-  // PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}
-  // 201 = created, 204 = updated.  Anything else is fatal.
-  const res = await fetch(
-    `${_GH_API}/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(secretName)}`,
-    {
-      method: "PUT",
-      headers: { ..._ghHeaders(token), "Content-Type": "application/json" },
-      body: JSON.stringify({
-        encrypted_value: encryptedB64,
-        key_id: keyId,
-      }),
-    }
-  );
-  if (res.status === 201 || res.status === 204) return;
-  const body = await res.text();
+async function _saveSubscriptions(owner, repo, token, courseIds, sha) {
+  const ids = [...new Set(courseIds.map(String).map((s) => s.trim()))];
+  if (!ids.every((id) => /^\d+$/.test(id))) {
+    throw new Error("课程 ID 必须是数字");
+  }
+  const json = JSON.stringify({ course_ids: ids }, null, 2) + "\n";
+  const payload = {
+    message: "chore: update course subscriptions",
+    branch: "data",
+    content: btoa(json), // Numeric IDs and ASCII JSON only.
+  };
+  if (sha) payload.sha = sha;
+  const res = await fetch(_subscriptionsUrl(owner, repo), {
+    method: "PUT",
+    headers: { ..._ghHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 200 || res.status === 201) {
+    return { ids, sha: (await res.json()).content.sha };
+  }
+  if (res.status === 409 || res.status === 422) {
+    throw new Error("订阅已被其他操作更新，或 data 分支还未初始化。请刷新页面后重试。");
+  }
   if (res.status === 403) {
-    throw new Error(
-      "无权限写入 Secret。请确认 PAT 的 Secrets 权限设为 Read and write。" +
-      `服务端返回：${res.status} ${body}`
-    );
+    throw new Error("无权保存订阅。GitHub PAT 需要 Contents: Read and write 权限。");
   }
-  throw new Error(`GitHub API error ${res.status}: ${body}`);
-}
-
-async function _setCourseIdsSecret(owner, repo, token, courseIds) {
-  // Convenience: encrypts the comma-joined COURSE_IDS list against the
-  // repo's public key and writes it as the ``COURSE_IDS`` secret in one
-  // round-trip.  Returns the canonical list that was written so the UI
-  // can confirm the saved state.
-  const sodium = await _ensureSodium();
-  const pub = await _getRepoPublicKey(owner, repo, token);
-  const value = (Array.isArray(courseIds) ? courseIds : [])
-    .map(String)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join(",");
-  // sealed box: anyone with the public key can encrypt; only the matching
-  // private key (held by GitHub Actions runner) can decrypt.
-  const cipher = sodium.crypto_box_seal(
-    sodium.from_string(value),
-    sodium.from_base64(pub.key, sodium.base64_variants.ORIGINAL),
-  );
-  const cipherB64 = sodium.to_base64(
-    cipher, sodium.base64_variants.ORIGINAL,
-  );
-  await _putRepoSecret(owner, repo, token, "COURSE_IDS", cipherB64, pub.key_id);
-  return value;
+  throw new Error(`无法保存订阅：GitHub HTTP ${res.status}`);
 }
 
 async function _triggerSingleRunWorkflow(owner, repo, ref, token, courseIds, useOfficial) {
@@ -325,7 +281,6 @@ window.ICS.github = {
   triggerExportWorkflow: _triggerExportWorkflow,
   triggerDeleteWorkflow: _triggerDeleteWorkflow,
   triggerSingleRunWorkflow: _triggerSingleRunWorkflow,
-  getRepoPublicKey: _getRepoPublicKey,
-  putRepoSecret: _putRepoSecret,
-  setCourseIdsSecret: _setCourseIdsSecret,
+  getSubscriptions: _getSubscriptions,
+  saveSubscriptions: _saveSubscriptions,
 };

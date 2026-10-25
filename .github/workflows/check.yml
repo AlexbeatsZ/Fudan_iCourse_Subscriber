@@ -30,12 +30,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests pycryptodome
+      - name: Load subscriptions from data branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FUDAN_STUID: ${{ secrets.STUID }}
+          FUDAN_UISPSW: ${{ secrets.UISPSW }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
+        run: python scripts/resolve_subscriptions.py --mode check
       - name: Check new recordings and missing subtitle timelines
         id: probe
         env:
           FUDAN_STUID: ${{ secrets.STUID }}
           FUDAN_UISPSW: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ secrets.COURSE_IDS }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -64,6 +71,15 @@ jobs:
       - name: Install Python dependencies
         if: steps.cache-pip.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
+
+      - name: Load subscriptions from data branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FUDAN_STUID: ${{ secrets.STUID }}
+          FUDAN_UISPSW: ${{ secrets.UISPSW }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
+        run: python scripts/resolve_subscriptions.py --mode check
 
       - name: Install ffmpeg
         run: |
@@ -163,7 +179,6 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
-          COURSE_IDS: ${{ secrets.COURSE_IDS }}
           CRAWL_TERM: ${{ secrets.CRAWL_TERM }}
         run: |
           python -u main.py
@@ -175,12 +190,7 @@ jobs:
           UISPSW: ${{ secrets.UISPSW }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
-          COURSE_IDS: ${{ secrets.COURSE_IDS }}
-          # Persisted by the sharder into meta('subscribed_course_ids')
-          # so single_run.yml / delete_course.yml (which run with a
-          # different or no COURSE_IDS) still know the user's real
-          # subscription and don't reclassify everything as cold.
-          SUBSCRIBED_COURSE_IDS: ${{ secrets.COURSE_IDS }}
+          # Resolved from data/subscriptions.json by the earlier step.
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -191,7 +201,7 @@ jobs:
           fi
 
           AFTER=$(md5sum data/icourse.db | cut -d' ' -f1)
-          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ] && [ "${{ steps.decode.outputs.needs_rekey }}" != "true" ]; then
+          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ] && [ "${{ steps.decode.outputs.needs_rekey }}" != "true" ] && [ "$SUBSCRIPTIONS_NEEDS_MIGRATION" != "1" ]; then
             echo "Database unchanged, skipping commit."
             exit 0
           fi
@@ -231,7 +241,17 @@ jobs:
           git checkout -q -b data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          # Save the *latest* subscription manifest, not a potentially stale
+          # copy fetched at the beginning of this long-running ASR job.
+          expected=$(git ls-remote origin refs/heads/data | cut -f1)
+          if [ -n "$expected" ]; then
+            git fetch --depth=1 origin data
+          fi
+          if [ -z "$expected" ] || ! git show FETCH_HEAD:data/subscriptions.json > data/subscriptions.json 2>/dev/null; then
+            python "$GITHUB_WORKSPACE/scripts/write_subscriptions.py" data/subscriptions.json
+          fi
           git add data/
           git commit -q -m "chore: update encrypted database (sharded v2)"
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          git push --force origin data
+          # A concurrent frontend edit must not be silently overwritten.
+          git push --force-with-lease="refs/heads/data:${expected}" origin data

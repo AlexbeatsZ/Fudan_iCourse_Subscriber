@@ -59,7 +59,7 @@ def probe(config):
                 source = urlsplit(response.url or "") if response is not None else None
                 if (response is None or response.status_code != 404
                         or source.hostname != "api.github.com"
-                        or source.path != f"/repos/{config['repository']}/commits/data"):
+                        or source.path != f"/repos/{config['repository']}/git/ref/heads/data"):
                     raise
                 dbpath = None
             needed = dbpath is None or config.get("_needs_rekey", False)
@@ -93,7 +93,10 @@ def main():
         config["repository"] = os.environ["GITHUB_REPOSITORY"]
     env_courses = [v.strip() for v in os.environ.get("COURSE_IDS", "").split(",") if v.strip()]
     if not env_courses:
-        raise RuntimeError("COURSE_IDS is not set; add your own course IDs to Actions secrets")
+        print("No subscriptions configured. Run Single Run with course IDs to initialize.")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write("needed=false\n")
+        return
     if not all(v.isdecimal() for v in env_courses):
         raise ValueError("COURSE_IDS must contain comma-separated numeric course IDs")
     if os.environ.get("GITHUB_ACTIONS") == "true" and not (
@@ -104,6 +107,8 @@ def main():
     for attempt in range(1, 4):
         try:
             needed = probe(config)
+            if os.environ.get("SUBSCRIPTIONS_NEEDS_MIGRATION") == "1":
+                needed = True
             break
         except requests.RequestException as error:
             if attempt == 3 or not transient_error(error):

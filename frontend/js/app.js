@@ -727,7 +727,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     // ── Subscriptions editor (three-column) ──────────────────────────
-    openSubscriptions() {
+    async openSubscriptions() {
       try {
         this._go("subscriptions");
       } catch (e) {
@@ -753,33 +753,43 @@ document.addEventListener("alpine:init", () => {
       this._subsSingleRunCache = [];
       this._subsDeptCache = [];
       this.subsError = "";
+      this.subsLoading = true;
+      this.subsLoadError = false;
+      this.subscriptionsSha = null;
 
-      // Load subscription (localStorage → meta table fallback)
+      // Existing databases may still have the old list in encrypted meta.
+      // The public data-branch manifest takes precedence, including [].
       this.subscribedIds = [];
       try {
-        var cached = JSON.parse(
-          localStorage.getItem(_LS + "lastSubscribed") || "null"
-        );
-        if (Array.isArray(cached)) this.subscribedIds = cached.map(String);
-      } catch {}
-      if (!this.subscribedIds.length) {
-        try { var metaRaw = ICS.db.getMeta("course_ids"); } catch (e) { metaRaw = null; }
+        var metaRaw = ICS.db.getMeta("subscribed_course_ids") || ICS.db.getMeta("course_ids");
         if (metaRaw) {
           this.subscribedIds = metaRaw.split(",")
             .map(function (s) { return s.trim(); })
             .filter(Boolean);
-          try {
-            localStorage.setItem(
-              _LS + "lastSubscribed",
-              JSON.stringify(this.subscribedIds),
-            );
-          } catch {}
         }
-      }
+      } catch {}
       this._refreshSubscribedCache();
       this._refreshSingleRunCache();
       this._refreshDeptCache();
       this.rebuildSubsFiltered();
+
+      try {
+        var creds = _loadCreds();
+        if (!creds?.token) throw new Error("请先设置 GitHub PAT 才能读取和修改订阅。");
+        var remote = await ICS.github.getSubscriptions(
+          this.repoOwner, this.repoName, creds.token,
+        );
+        if (remote) {
+          this.subscribedIds = remote.ids;
+          this.subscriptionsSha = remote.sha;
+        }
+        this._refreshSubscribedCache();
+      } catch (e) {
+        this.subsError = e?.message || "无法读取远程订阅列表";
+        this.subsLoadError = true;
+      } finally {
+        this.subsLoading = false;
+      }
     },
     // ── Cache refreshers (called explicitly when underlying IDs change) ─
     _refreshSubscribedCache() {
@@ -879,6 +889,7 @@ document.addEventListener("alpine:init", () => {
     },
     // ── Triangle-arrow operations ────────────────────────────────────
     moveToSubscribed() {
+      if (this.subsLoading || this.subsLoadError) return;
       var target = new Set(this.subscribedIds.map(String));
       var selected = this.subsSelMiddle;
       for (var i = 0; i < selected.length; i++) target.add(selected[i]);
@@ -887,6 +898,7 @@ document.addEventListener("alpine:init", () => {
       this._refreshSubscribedCache();
     },
     moveFromSubscribed() {
+      if (this.subsLoading || this.subsLoadError) return;
       var target = new Set(this.subscribedIds.map(String));
       var selected = this.subsSelLeft;
       for (var i = 0; i < selected.length; i++) target.delete(selected[i]);
@@ -910,9 +922,9 @@ document.addEventListener("alpine:init", () => {
       this.subsSelRight = [];
       this._refreshSingleRunCache();
     },
-    // ── Save left column to GitHub Secret ────────────────────────────
+    // ── Save left column to the public data-branch config ───────────
     async saveSubscriptions() {
-      if (this.subsSaving) return;
+      if (this.subsSaving || this.subsLoading || this.subsLoadError) return;
       var creds = _loadCreds();
       if (!creds?.token) {
         this.subsError = "未登录或 PAT 缺失。";
@@ -925,19 +937,15 @@ document.addEventListener("alpine:init", () => {
       this.subsSaving = true;
       this.subsError = "";
       try {
-        var written = await ICS.github.setCourseIdsSecret(
-          this.repoOwner, this.repoName, creds.token, this.subscribedIds,
+        var written = await ICS.github.saveSubscriptions(
+          this.repoOwner, this.repoName, creds.token,
+          this.subscribedIds, this.subscriptionsSha,
         );
+        this.subscriptionsSha = written.sha;
         this._toast(
-          "已保存 " + written.split(",").filter(Boolean).length + " 门课到 COURSE_IDS secret",
+          "已保存 " + written.ids.length + " 门课到 data 分支",
           "success",
         );
-        try {
-          localStorage.setItem(
-            _LS + "lastSubscribed",
-            JSON.stringify(this.subscribedIds),
-          );
-        } catch {}
       } catch (e) {
         this.subsError = e?.message || "保存失败";
       } finally {
@@ -959,10 +967,7 @@ document.addEventListener("alpine:init", () => {
       this.singleRunTriggering = true;
       this.subsError = "";
       try {
-        // Fire single_run.yml directly with course_ids as input. This
-        // keeps the persisted COURSE_IDS secret (used by daily check)
-        // untouched, and uses the dedicated single-run workflow rather
-        // than overloading the scheduled check workflow.
+        // A one-off run never modifies the persistent data-branch subscription.
         await ICS.github.triggerSingleRunWorkflow(
           this.repoOwner, this.repoName, "main", creds.token,
           this.singleRunIds, this.singleRunUseOfficial,

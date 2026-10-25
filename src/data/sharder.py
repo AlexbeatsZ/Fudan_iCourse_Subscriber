@@ -76,17 +76,15 @@ list (= hot bin), without modifying any other module of the codebase.
 
 The strategy:
 
-    1. Env var ``SUBSCRIBED_COURSE_IDS`` — when set, it is authoritative
-       and is persisted to ``meta('subscribed_course_ids')``.  This is
-       set only in ``check.yml``'s shard step, where the workflow knows
-       the full subscription (the GitHub Actions secret).
+    1. Env var ``SUBSCRIBED_COURSE_IDS`` — when set, it comes from the
+       public ``data/subscriptions.json`` file and is persisted to
+       ``meta('subscribed_course_ids')``. Both scheduled and one-off
+       workflows use the same full subscription set.
 
     2. Otherwise — read the previously persisted value from
-       ``meta('subscribed_course_ids')``.  ``single_run.yml``,
-       ``delete_course.yml``, and manual reshards take this path; they
-       would otherwise be at risk of treating their one-shot
-       ``COURSE_IDS`` input as the full subscription and corrupting the
-       bin layout.
+       ``meta('subscribed_course_ids')``. ``delete_course.yml`` and
+       manual reshards use this fallback so their one-shot selections
+       are not mistaken for the full subscription set.
 
 LAYOUT under ``output_dir``
 ===========================

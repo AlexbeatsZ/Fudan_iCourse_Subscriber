@@ -74,6 +74,7 @@ def cloud_database(config):
     repo = config["repository"]
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
         raise ValueError("GitHub 仓库名无效")
+    RUNTIME.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=RUNTIME) as td:
         temp = Path(td)
         # Authenticate only the GitHub API request, never the archive or school requests.
@@ -81,10 +82,12 @@ def cloud_database(config):
         token = os.environ.get("GITHUB_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        response = requests.get(f"https://api.github.com/repos/{repo}/commits/data",
+        # A fork starts without a data branch. The Git refs endpoint returns
+        # a reliable 404 in that case (the commits endpoint can return 422).
+        response = requests.get(f"https://api.github.com/repos/{repo}/git/ref/heads/data",
                                 headers=headers, timeout=30)
         response.raise_for_status()
-        sha = response.json()["sha"]
+        sha = response.json()["object"]["sha"]
         cache = RUNTIME/"cloud.db"
         account, password = credentials()
         keys = password_candidates(

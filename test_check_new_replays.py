@@ -13,7 +13,7 @@ from desktop import downloader
 from scripts import check_new_replays as check
 
 
-API_URL = "https://api.github.com/repos/owner/repo/commits/data"
+API_URL = "https://api.github.com/repos/owner/repo/git/ref/heads/data"
 
 
 def http_error(status, url=API_URL, headers=None):
@@ -67,14 +67,24 @@ class ReplayProbeTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 self.assertTrue(check.transient_error(error))
 
-    def test_missing_or_invalid_course_ids_fail_before_login(self):
-        for value in ("", "  ", "40243,not-a-course"):
-            with (self.subTest(value=value),
-                  patch.dict(os.environ, {"COURSE_IDS": value}),
-                  patch.object(check, "probe") as probe,
-                  self.assertRaises((RuntimeError, ValueError))):
-                check.main()
-            probe.assert_not_called()
+    def test_missing_course_ids_skips_probe_until_subscription_initialized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for value in ("", "  "):
+                output = Path(directory) / "output"
+                with (self.subTest(value=value),
+                      patch.dict(os.environ, {"COURSE_IDS": value, "GITHUB_OUTPUT": str(output)}),
+                      patch.object(check, "probe") as probe):
+                    check.main()
+                probe.assert_not_called()
+                self.assertEqual(output.read_text(), "needed=false\n")
+                output.unlink()
+
+    def test_invalid_course_ids_fail_before_login(self):
+        with (patch.dict(os.environ, {"COURSE_IDS": "40243,not-a-course"}),
+              patch.object(check, "probe") as probe,
+              self.assertRaises(ValueError)):
+            check.main()
+        probe.assert_not_called()
 
     def test_probe_requests_rekey_even_without_new_lectures(self):
         client = Mock()
@@ -113,7 +123,7 @@ class ReplayProbeTests(unittest.TestCase):
               patch.object(downloader, "RUNTIME", Path(directory)),
               patch.object(downloader, "credentials", return_value=("student", "uis")),
               patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}),
-              patch("requests.get", side_effect=[Mock(json=lambda: {"sha": "abc"}),
+              patch("requests.get", side_effect=[Mock(json=lambda: {"object": {"sha": "abc"}}),
                                                 Mock(raise_for_status=Mock(side_effect=http_error(503)))]) as get):
             with self.assertRaises(requests.HTTPError):
                 downloader.cloud_database({"repository": "owner/repo"})
