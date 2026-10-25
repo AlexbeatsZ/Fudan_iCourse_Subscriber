@@ -20,7 +20,8 @@ def resolve(repository, token, mode, input_ids=""):
         # encrypted DB. Migrate it without reading the old COURSE_IDS secret.
         from desktop.downloader import cloud_database
         dbpath = cloud_database({"repository": repository})
-        saved = legacy_course_ids(dbpath)
+        if dbpath is not None:
+            saved = legacy_course_ids(dbpath)
     explicit = parse_csv(input_ids)
     if mode == "single":
         effective = explicit if input_ids.strip() else (saved or [])

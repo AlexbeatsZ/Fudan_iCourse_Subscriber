@@ -25,18 +25,29 @@ jobs:
     outputs:
       needed: ${{ steps.probe.outputs.needed }}
       has_courses: ${{ steps.subscriptions.outputs.has_courses }}
+      initialized: ${{ steps.init.outputs.initialized }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests pycryptodome
-      - name: Initialize data branch if missing
+      - name: Initialize missing data files (setup-only run)
+        id: init
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          STUID: ${{ secrets.STUID }}
+          UISPSW: ${{ secrets.UISPSW }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
+          FUDAN_STUID: ${{ secrets.STUID }}
+          FUDAN_UISPSW: ${{ secrets.UISPSW }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: python scripts/bootstrap_data_branch.py
       - name: Load subscriptions from data branch
         id: subscriptions
+        if: steps.init.outputs.initialized != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FUDAN_STUID: ${{ secrets.STUID }}
@@ -46,6 +57,7 @@ jobs:
         run: python scripts/resolve_subscriptions.py --mode check
       - name: Check new recordings and missing subtitle timelines
         id: probe
+        if: steps.init.outputs.initialized != 'true'
         env:
           FUDAN_STUID: ${{ secrets.STUID }}
           FUDAN_UISPSW: ${{ secrets.UISPSW }}
@@ -55,7 +67,7 @@ jobs:
         run: python scripts/check_new_replays.py
   check:
     needs: discover
-    if: (needs.discover.outputs.needed == 'true' || (github.event_name == 'workflow_dispatch' && needs.discover.outputs.has_courses == 'true')) && inputs.probe_only != true
+    if: needs.discover.outputs.initialized == 'false' && (needs.discover.outputs.needed == 'true' || (github.event_name == 'workflow_dispatch' && needs.discover.outputs.has_courses == 'true')) && inputs.probe_only != true
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -121,18 +133,11 @@ jobs:
           # Force-fetch (+refspec) so non-fast-forward updates from
           # force-pushed data branches are picked up (shallow clone
           # otherwise refuses to overwrite the stale tracking ref).
-          git fetch --depth=1 origin "+refs/heads/data:refs/remotes/origin/data" 2>/dev/null \
-            || { echo "No data branch, starting fresh."; exit 0; }
-          # Use ls-tree (reads tree directly) instead of cat-file
-          # (requires fetched blobs) in case the shallow clone hasn't
-          # fetched every blob object yet.
-          git ls-tree origin/data --name-only data/ | grep -q . \
-            || { echo "No database found on data branch, starting fresh."; exit 0; }
-          # Determine format from tree listing (ls-tree reads tree
-          # objects directly without needing the blobs fetched).
-          files=$(git ls-tree origin/data --name-only data/ | tr '\n' ' ')
-          echo "Data branch files: $files"
-          if echo "$files" | grep -q "icourse-index.enc"; then
+          git fetch --depth=1 origin "+refs/heads/data:refs/remotes/origin/data"
+          # -r is essential: without it, ls-tree reports just the top-level
+          # "data" directory and silently misses existing encrypted shards.
+          files=$(git ls-tree -r --name-only origin/data)
+          if printf '%s\n' "$files" | grep -Fxq 'data/icourse-index.enc'; then
             mkdir -p data/sharded/shards
             git show origin/data:data/icourse-index.enc > data/sharded/icourse-index.enc
             shard_paths=$(git ls-tree -r --name-only origin/data | grep '^data/shards/' || true)
@@ -141,14 +146,15 @@ jobs:
               git show "origin/data:$path" > "data/sharded/shards/$base"
             done
             echo "Loaded $(ls data/sharded/shards 2>/dev/null | wc -l) shard(s)."
-          elif echo "$files" | grep -q "icourse.db.gz.enc"; then
+          elif printf '%s\n' "$files" | grep -Fxq 'data/icourse.db.gz.enc'; then
             git show origin/data:data/icourse.db.gz.enc > data/icourse.db.gz.enc
             echo "Loaded legacy compressed database."
-          elif echo "$files" | grep -q "icourse.db.enc"; then
+          elif printf '%s\n' "$files" | grep -Fxq 'data/icourse.db.enc'; then
             git show origin/data:data/icourse.db.enc > data/icourse.db.enc
             echo "Loaded legacy uncompressed database."
           else
-            echo "No database found on data branch, starting fresh."
+            echo "::error::Data initialization passed, but encrypted database is missing. Refusing to replace remote data."
+            exit 1
           fi
 
       - name: Decode database
@@ -214,7 +220,7 @@ jobs:
 
           # Pull the latest remote shards (a concurrent run may have written
           # new data) and merge our local changes in before re-sharding.
-          git fetch origin data --depth=1 2>/dev/null || echo "No data branch yet."
+          git fetch --depth=1 origin "+refs/heads/data:refs/remotes/origin/data"
           DEPLOY_DB=data/icourse.db
           if git rev-parse origin/data >/dev/null 2>&1 && \
              git cat-file -e origin/data:data/icourse-index.enc 2>/dev/null; then

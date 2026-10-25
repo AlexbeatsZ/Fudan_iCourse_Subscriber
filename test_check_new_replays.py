@@ -1,4 +1,5 @@
 import contextlib
+import gzip
 import io
 import os
 import sqlite3
@@ -6,14 +7,26 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, call, patch
+import zipfile
 
 import requests
 
 from desktop import downloader
 from scripts import check_new_replays as check
+from src.data import crypto_box
 
 
 API_URL = "https://api.github.com/repos/owner/repo/git/ref/heads/data"
+
+
+def mocked_data_archive(files):
+    """Two HTTP responses: git ref + codeload archive of a data branch."""
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        for name, content in files.items():
+            archive.writestr(f"owner-repo-commit/data/{name}", content)
+    return [Mock(json=lambda: {"object": {"sha": "commit"}}),
+            Mock(content=output.getvalue())]
 
 
 def http_error(status, url=API_URL, headers=None):
@@ -25,6 +38,52 @@ def http_error(status, url=API_URL, headers=None):
 
 
 class ReplayProbeTests(unittest.TestCase):
+    def test_manifest_only_branch_is_a_fresh_database_and_needs_processing(self):
+        client = Mock()
+        responses = mocked_data_archive({"subscriptions.json": '{"course_ids":["1"]}'})
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(downloader, "RUNTIME", Path(directory)),
+              patch.object(downloader, "credentials", return_value=("student", "uis")),
+              patch.object(check, "login", return_value=client),
+              patch("requests.get", side_effect=responses)):
+            self.assertTrue(check.probe({"repository": "owner/repo", "courses": ["1"]}))
+        client.get_course_detail.assert_not_called()
+        client.vpn.session.close.assert_called_once()
+
+    def test_orphan_encrypted_shards_do_not_get_treated_as_fresh(self):
+        responses = mocked_data_archive({
+            "subscriptions.json": '{"course_ids":["1"]}',
+            "shards/shard-hot-0000.db.gz.enc": b"orphan shard",
+        })
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(downloader, "RUNTIME", Path(directory)),
+              patch.object(downloader, "credentials", return_value=("student", "uis")),
+              patch("requests.get", side_effect=responses),
+              self.assertRaisesRegex(FileNotFoundError, "缺少数据库索引")):
+            downloader.cloud_database({"repository": "owner/repo"})
+
+    def test_legacy_single_file_db_can_be_loaded_and_rekeyed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root/"old.db"
+            with sqlite3.connect(original) as db:
+                db.execute("CREATE TABLE course (id TEXT)")
+                db.execute("INSERT INTO course VALUES ('1')")
+            blob = crypto_box.encrypt(
+                gzip.compress(original.read_bytes()),
+                crypto_box.derive_new_password("student", "uis"),
+            )
+            responses = mocked_data_archive({"icourse.db.gz.enc": blob})
+            with (patch.object(downloader, "RUNTIME", root),
+                  patch.object(downloader, "credentials", return_value=("student", "uis")),
+                  patch.dict(os.environ, {"DB_PASSWORD": "new-secret"}),
+                  patch("requests.get", side_effect=responses)):
+                config = {"repository": "owner/repo"}
+                result = downloader.cloud_database(config)
+                self.assertTrue(config["_needs_rekey"])
+                with sqlite3.connect(result) as db:
+                    self.assertEqual(db.execute("SELECT id FROM course").fetchone()[0], "1")
+
     def run_main(self, output, outcomes):
         with (patch.object(check, "settings", return_value={"courses": ["1"]}),
               patch.object(check, "probe", side_effect=outcomes) as probe,

@@ -68,8 +68,15 @@ def login():
 
 
 def cloud_database(config):
+    """Return the decrypted cloud DB, or None before the first database upload.
+
+    The data branch can legitimately contain only subscriptions.json after
+    bootstrap.  Missing encrypted files must not be mistaken for a bad key.
+    """
     import requests
-    from src.data.crypto_box import password_candidates
+    import gzip
+    from src.data.crypto_box import (decrypt, is_gzip, is_sqlite,
+                                     password_candidates)
     from src.data.sharder import load_index, reassemble_database
     repo = config["repository"]
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
@@ -117,15 +124,53 @@ def cloud_database(config):
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(member))
         result = temp/"cloud.db"
-        for label, key, _ in keys:
-            try:
-                index = load_index(str(temp/"icourse-index.enc"), key)
-                reassemble_database(index, str(temp/"shards"), str(result), key)
-                break
-            except (ValueError, UnicodeDecodeError):
-                continue
+        index_file = temp/"icourse-index.enc"
+        legacy_file = next((temp/name for name in ("icourse.db.gz.enc", "icourse.db.enc")
+                            if (temp/name).is_file()), None)
+        if index_file.is_file():
+            for label, key, _ in keys:
+                try:
+                    index = load_index(str(index_file), key)
+                    reassemble_database(index, str(temp/"shards"), str(result), key)
+                    break
+                except (ValueError, UnicodeDecodeError):
+                    continue
+            else:
+                raise ValueError("云端数据库解密失败，请检查 DB_PASSWORD（若已设置）")
+        elif legacy_file is not None:
+            # Old forks may still store one encrypted SQLite file instead
+            # of a sharded index.  Decode it before the normal v2 upload.
+            old_keys = password_candidates(
+                stuid=account, uispsw=password,
+                db_password=os.environ.get("DB_PASSWORD", ""),
+                previous_db_password=os.environ.get("DB_PASSWORD_PREVIOUS", ""),
+                dashscope=os.environ.get("DASHSCOPE_API_KEY", ""),
+                smtp=os.environ.get("SMTP_PASSWORD", ""),
+                include_legacy=True,
+            )
+            blob = legacy_file.read_bytes()
+            for label, key, iterations in old_keys:
+                try:
+                    plaintext = decrypt(blob, key, iterations)
+                    if is_gzip(plaintext):
+                        plaintext = gzip.decompress(plaintext)
+                    if not is_sqlite(plaintext):
+                        continue
+                    result.write_bytes(plaintext)
+                    break
+                except (ValueError, OSError):
+                    continue
+            else:
+                raise ValueError("云端数据库解密失败，请检查 DB_PASSWORD（若已设置）")
         else:
-            raise ValueError("云端数据库解密失败，请检查 DB_PASSWORD（若已设置）")
+            # A new fork's data branch only contains subscriptions.json.
+            # Do not hide malformed data: orphan encrypted shards without an
+            # index are a corrupt store, not a fresh installation.
+            if any(temp.rglob("*.enc")):
+                raise FileNotFoundError("data 分支存在加密文件，但缺少数据库索引")
+            print("Cloud database not initialized yet; first processing run will create it.",
+                  flush=True)
+            return None
         with closing(sqlite3.connect(result)) as db:
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise ValueError("云端数据库不完整")
@@ -139,6 +184,8 @@ def cloud_database(config):
 
 def sync_subtitles(config):
     dbpath = cloud_database(config)
+    if dbpath is None:
+        return 0
     count = 0
     with closing(sqlite3.connect(dbpath)) as db:
         cols = {r[1] for r in db.execute("PRAGMA table_info(lectures)")}

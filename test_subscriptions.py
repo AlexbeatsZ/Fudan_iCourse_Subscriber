@@ -1,6 +1,7 @@
 """First-run subscription bootstrap, legacy migration, and fork isolation."""
 import base64
 import json
+import os
 import sqlite3
 from pathlib import Path
 import tempfile
@@ -11,65 +12,169 @@ import requests
 
 from scripts import resolve_subscriptions as resolver
 from scripts import bootstrap_data_branch as bootstrap
+from desktop import downloader
+from src.data import crypto_box
 from src.data.subscriptions import (
     fetch_manifest, legacy_course_ids, manifest_bytes, parse_manifest,
 )
 
 
 class SubscriptionTests(unittest.TestCase):
-    def test_bootstrap_creates_orphan_data_ref_with_public_empty_manifest(self):
+    def test_bootstrap_creates_orphan_branch_with_manifest_and_encrypted_db(self):
         session = Mock()
         session.get.return_value = Mock(status_code=404)
         session.post.side_effect = [
+            Mock(raise_for_status=Mock(), json=lambda: {"sha": "blob1"}),
+            Mock(raise_for_status=Mock(), json=lambda: {"sha": "blob2"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "tree"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "commit"}),
             Mock(status_code=201),
         ]
-        self.assertTrue(bootstrap.ensure_data_branch("Friend/Fork", "token", session=session))
-        tree_call, commit_call, ref_call = session.post.call_args_list
-        self.assertEqual(tree_call.kwargs["json"]["tree"][0]["path"], "data/subscriptions.json")
-        self.assertEqual(json.loads(tree_call.kwargs["json"]["tree"][0]["content"]),
+        with patch.object(bootstrap, "_new_database_files", return_value={
+                "data/icourse-index.enc": b"encrypted-index",
+                "data/shards/meta-0000.db.gz.enc": b"encrypted-shard"}):
+            self.assertTrue(bootstrap.ensure_data_branch(
+                "Friend/Fork", "token", session=session, stuid="s", uispsw="p"))
+        blob1, blob2, tree_call, commit_call, ref_call = session.post.call_args_list
+        self.assertEqual(base64.b64decode(blob1.kwargs["json"]["content"]), b"encrypted-index")
+        self.assertEqual(base64.b64decode(blob2.kwargs["json"]["content"]), b"encrypted-shard")
+        entries = tree_call.kwargs["json"]["tree"]
+        self.assertEqual({entry["path"] for entry in entries}, {
+            "data/subscriptions.json", "data/icourse-index.enc", "data/shards/meta-0000.db.gz.enc"})
+        manifest_entry = next(item for item in entries if item["path"] == "data/subscriptions.json")
+        self.assertEqual(json.loads(manifest_entry["content"]),
                          {"course_ids": []})
         self.assertEqual(commit_call.kwargs["json"]["parents"], [])
         self.assertEqual(ref_call.kwargs["json"],
                          {"ref": "refs/heads/data", "sha": "commit"})
         self.assertIn("Friend/Fork", session.get.call_args.args[0])
 
-    def test_bootstrap_can_seed_first_single_run_and_leaves_existing_data_alone(self):
+    def test_bootstrap_generates_decryptable_complete_empty_database(self):
+        files = bootstrap._new_database_files(
+            ["1", "2"], stuid="student", uispsw="uis", db_password="separate-secret")
+        self.assertEqual(set(files), {"data/icourse-index.enc", "data/shards/meta-0000.db.gz.enc"})
+        index = crypto_box.decrypt(
+            files["data/icourse-index.enc"],
+            crypto_box.derive_custom_password("separate-secret"))
+        self.assertTrue(json.loads(index)["shards"])
+        self.assertNotIn(b"separate-secret", files["data/icourse-index.enc"])
+
+    def test_bootstrap_encrypted_files_roundtrip_into_cloud_database(self):
+        import io
+        import zipfile
+        files = bootstrap._new_database_files(
+            [], stuid="student", uispsw="uis", db_password="custom-secret")
+        files["data/subscriptions.json"] = manifest_bytes([])
+        zipped = io.BytesIO()
+        with zipfile.ZipFile(zipped, "w") as z:
+            for path, content in files.items():
+                z.writestr(f"fork-commit/{path}", content)
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(downloader, "RUNTIME", Path(directory)),
+              patch.object(downloader, "credentials", return_value=("student", "uis")),
+              patch.dict(os.environ, {"DB_PASSWORD": "custom-secret"}),
+              patch("requests.get", side_effect=[
+                  Mock(json=lambda: {"object": {"sha": "commit"}}),
+                  Mock(content=zipped.getvalue()),
+              ])):
+            config = {"repository": "Friend/Fork"}
+            dbpath = downloader.cloud_database(config)
+            self.assertFalse(config["_needs_rekey"])
+            with sqlite3.connect(dbpath) as db:
+                self.assertIn("courses", {r[0] for r in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")})
+
+    def test_bootstrap_leaves_complete_data_alone(self):
         existing = Mock()
-        existing.get.return_value = Mock(status_code=200)
+        existing.get.side_effect = [
+            Mock(status_code=200, json=lambda: {"object": {"sha": "old"}}),
+            Mock(json=lambda: {"tree": {"sha": "oldtree"}}),
+            Mock(json=lambda: {"tree": [
+                {"path": "data/subscriptions.json", "type": "blob"},
+                {"path": "data/icourse-index.enc", "type": "blob"},
+                {"path": "data/shards/meta-0000.db.gz.enc", "type": "blob"},
+            ]}),
+        ]
         self.assertFalse(bootstrap.ensure_data_branch("Friend/Fork", "token", "1,2", session=existing))
         existing.post.assert_not_called()
 
+    def test_bootstrap_can_seed_first_single_run(self):
         fresh = Mock()
         fresh.get.return_value = Mock(status_code=404)
         fresh.post.side_effect = [
+            Mock(raise_for_status=Mock(), json=lambda: {"sha": "blob"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "tree"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "commit"}),
             Mock(status_code=201),
         ]
-        self.assertTrue(bootstrap.ensure_data_branch("Friend/Fork", "token", "1,2,1", session=fresh))
-        self.assertEqual(json.loads(fresh.post.call_args_list[0].kwargs["json"]["tree"][0]["content"]),
+        with patch.object(bootstrap, "_new_database_files", return_value={
+                "data/icourse-index.enc": b"encrypted"}):
+            self.assertTrue(bootstrap.ensure_data_branch("Friend/Fork", "token", "1,2,1",
+                                                         session=fresh, db_password="secret"))
+        self.assertEqual(json.loads(fresh.post.call_args_list[1].kwargs["json"]["tree"][0]["content"]),
                          {"course_ids": ["1", "2"]})
 
-    def test_bootstrap_race_succeeds_only_when_ref_now_exists(self):
+    def test_bootstrap_repairs_existing_manifest_only_branch_without_overwriting_it(self):
         session = Mock()
-        session.get.side_effect = [Mock(status_code=404), Mock(status_code=200)]
+        session.get.side_effect = [
+            Mock(status_code=200, json=lambda: {"object": {"sha": "old"}}),
+            Mock(json=lambda: {"tree": {"sha": "oldtree"}}),
+            Mock(json=lambda: {"tree": [
+                {"path": "data/subscriptions.json", "type": "blob"},
+            ]}),
+        ]
         session.post.side_effect = [
+            Mock(raise_for_status=Mock(), json=lambda: {"sha": "blob"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "tree"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "commit"}),
-            Mock(status_code=422),
         ]
-        self.assertFalse(bootstrap.ensure_data_branch("Friend/Fork", "token", session=session))
+        session.patch.return_value = Mock(status_code=200)
+        with patch.object(bootstrap, "_new_database_files", return_value={
+                "data/icourse-index.enc": b"encrypted"}):
+            self.assertTrue(bootstrap.ensure_data_branch(
+                "Friend/Fork", "token", session=session, db_password="secret"))
+        tree_call = session.post.call_args_list[1]
+        self.assertEqual(tree_call.kwargs["json"]["base_tree"], "oldtree")
+        self.assertEqual([x["path"] for x in tree_call.kwargs["json"]["tree"]],
+                         ["data/icourse-index.enc"])
+        self.assertEqual(session.post.call_args_list[2].kwargs["json"]["parents"], ["old"])
+        self.assertEqual(session.patch.call_args.kwargs["json"]["force"], False)
 
-        session.get.side_effect = [Mock(status_code=404), Mock(status_code=404)]
+    def test_bootstrap_does_not_replace_orphan_encrypted_shards(self):
+        session = Mock()
+        session.get.side_effect = [
+            Mock(status_code=200, json=lambda: {"object": {"sha": "old"}}),
+            Mock(json=lambda: {"tree": {"sha": "oldtree"}}),
+            Mock(json=lambda: {"tree": [
+                {"path": "data/subscriptions.json", "type": "blob"},
+                {"path": "data/shards/meta-0000.db.gz.enc", "type": "blob"},
+            ]}),
+        ]
+        with self.assertRaisesRegex(FileNotFoundError, "no index"):
+            bootstrap.ensure_data_branch("Friend/Fork", "token", session=session)
+        session.post.assert_not_called()
+
+    def test_bootstrap_preserves_old_database_subscriptions_during_migration(self):
+        session = Mock()
+        session.get.side_effect = [
+            Mock(status_code=200, json=lambda: {"object": {"sha": "old"}}),
+            Mock(json=lambda: {"tree": {"sha": "oldtree"}}),
+            Mock(json=lambda: {"tree": [
+                {"path": "data/icourse-index.enc", "type": "blob"},
+                {"path": "data/shards/meta-0000.db.gz.enc", "type": "blob"},
+            ]}),
+        ]
         session.post.side_effect = [
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "tree"}),
             Mock(raise_for_status=Mock(), json=lambda: {"sha": "commit"}),
-            Mock(status_code=422, raise_for_status=Mock(side_effect=ValueError("422"))),
         ]
-        with self.assertRaisesRegex(ValueError, "422"):
-            bootstrap.ensure_data_branch("Friend/Fork", "token", session=session)
+        session.patch.return_value = Mock(status_code=200)
+        with patch.object(bootstrap, "_migrate_subscriptions", return_value=["9", "8"]) as migrate:
+            self.assertTrue(bootstrap.ensure_data_branch("Friend/Fork", "token", session=session))
+        migrate.assert_called_once_with("Friend/Fork")
+        entries = session.post.call_args_list[0].kwargs["json"]["tree"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(json.loads(entries[0]["content"]), {"course_ids": ["9", "8"]})
 
     def test_bootstrap_does_not_hide_permissions_or_missing_token(self):
         session = Mock()

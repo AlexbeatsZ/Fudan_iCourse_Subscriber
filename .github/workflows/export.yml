@@ -22,7 +22,7 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
@@ -37,7 +37,25 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install initialization dependencies
+        run: pip install requests pycryptodome
+
+      - name: Initialize missing data files (setup-only run)
+        id: init
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STUID: ${{ secrets.STUID }}
+          UISPSW: ${{ secrets.UISPSW }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
+          FUDAN_STUID: ${{ secrets.STUID }}
+          FUDAN_UISPSW: ${{ secrets.UISPSW }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: python scripts/bootstrap_data_branch.py
+
       - name: Cache Python packages
+        if: steps.init.outputs.initialized != 'true'
         id: cache-pip
         uses: actions/cache@v4
         with:
@@ -45,11 +63,11 @@ jobs:
           key: pip-${{ hashFiles('requirements.txt') }}
 
       - name: Install Python dependencies
-        if: steps.cache-pip.outputs.cache-hit != 'true'
+        if: steps.init.outputs.initialized != 'true' && steps.cache-pip.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
 
       - name: Install PDF dependencies
-        if: inputs.export_type == 'PDF'
+        if: steps.init.outputs.initialized != 'true' && inputs.export_type == 'PDF'
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk libpango-1.0-0 libcairo2
@@ -61,6 +79,7 @@ jobs:
           sudo fc-cache -fv
 
       - name: Fetch database from data branch
+        if: steps.init.outputs.initialized != 'true'
         run: |
           mkdir -p data
           git fetch origin data --depth=1
@@ -85,6 +104,7 @@ jobs:
           fi
 
       - name: Decode database
+        if: steps.init.outputs.initialized != 'true'
         env:
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
@@ -103,6 +123,7 @@ jobs:
           echo "Database decrypted."
 
       - name: Export course summaries
+        if: steps.init.outputs.initialized != 'true'
         env:
           SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
