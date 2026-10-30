@@ -17,7 +17,7 @@ def player_html(source):
     replaced = set()
     for index, line in enumerate(lines):
         if line.startswith("<header>"):
-            lines[index] = '<header><button class="brand" id="home" aria-label="返回课程库"><span class="mark" aria-hidden="true"></span><strong>iCourse</strong><small>本地课堂</small></button><nav><select id="theme" aria-label="外观"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">暗色</option></select><button id="refresh">刷新课程</button><button id="settings">设置 ↗</button></nav></header>'
+            lines[index] = '<header><button class="brand" id="home" aria-label="返回课程库"><span class="mark" aria-hidden="true"></span><strong>iCourse</strong><small>本地课堂</small></button><nav><select id="theme" aria-label="外观"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">暗色</option></select><button id="refresh">刷新</button><button id="settings">设置 ↗</button></nav></header>'
             replaced.add("header")
         elif line.startswith('<dialog id="dialog">'):
             lines[index] = '<dialog id="dialog"><form id="form"><h2>播放器设置</h2><label>视频目录<input name="destination" required></label><div class="actions"><button type="button" id="cancel">取消</button><button class="primary">保存</button></div></form></dialog>'
@@ -36,7 +36,7 @@ def player_html(source):
     return output
 
 
-def export(destination, archive):
+def export(destination, archive=None, runtime_directory=None):
     destination = destination.resolve()
     if (destination / "settings.json").exists():
         raise FileExistsError("An existing player deployment was found; preserve its settings before updating")
@@ -44,19 +44,27 @@ def export(destination, archive):
     shutil.copy2(HERE / "player.py", destination / "app" / "player.py")
     (destination / "app" / "index.html").write_text(
         player_html((HERE.parent / "desktop" / "index.html").read_text(encoding="utf-8-sig")), encoding="utf-8")
-    for name in ("start-player.ps1", "README.md", "AGENTS.md"):
+    for name in ("start-player.ps1", "README.md"):
         shutil.copy2(HERE / name, destination / name)
-    shutil.copy2(HERE / "start-player.vbs", destination / "启动播放器.vbs")
-    shutil.copy2(HERE / "stop-player.vbs", destination / "停止播放器.vbs")
+    shutil.copy2(HERE / "start-player.vbs", destination / "播放器.vbs")
     (destination / "settings.json").write_text(
         json.dumps({"destination": r"D:\Videos\Icouse", "port": 8765}, indent=2) + "\n", encoding="utf-8")
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    if not archive.exists():
-        print(f"Downloading embedded Python {RUNTIME_VERSION}...", flush=True)
-        with urlopen(RUNTIME_URL, timeout=60) as response, archive.open("wb") as output:
-            shutil.copyfileobj(response, output)
-    with ZipFile(archive) as package:
-        package.extractall(destination / "runtime")
+    if runtime_directory:
+        runtime_directory = Path(runtime_directory)
+        if not (runtime_directory / "python.exe").is_file():
+            raise ValueError("Runtime directory must contain the embedded python.exe")
+        shutil.copytree(runtime_directory, destination / "runtime",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    else:
+        if archive is None:
+            raise ValueError("Provide an embedded runtime archive or directory")
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        if not archive.exists():
+            print(f"Downloading embedded Python {RUNTIME_VERSION}...", flush=True)
+            with urlopen(RUNTIME_URL, timeout=60) as response, archive.open("wb") as output:
+                shutil.copyfileobj(response, output)
+        with ZipFile(archive) as package:
+            package.extractall(destination / "runtime")
     (destination / "deployment.json").write_text(
         json.dumps({"application": "icourse-portable-player", "version": "1.1.0",
                     "runtime": RUNTIME_VERSION, "runtime_source": RUNTIME_URL}, indent=2) + "\n", encoding="utf-8")
@@ -66,6 +74,8 @@ def export(destination, archive):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path)
-    parser.add_argument("--runtime-archive", type=Path, required=True)
+    runtime = parser.add_mutually_exclusive_group(required=True)
+    runtime.add_argument("--runtime-archive", type=Path)
+    runtime.add_argument("--runtime-directory", type=Path)
     args = parser.parse_args()
-    export(args.destination, args.runtime_archive)
+    export(args.destination, args.runtime_archive, args.runtime_directory)

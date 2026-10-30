@@ -48,6 +48,9 @@ and destination/version; retain runtime, toggle launcher and identity checks.
 Mac retains its three LaunchAgents; rebuild the shared HTML and reload only
 processes whose code changed. ROG has newer download/SMB recovery than main:
 patch its archive defaults and preview metadata without replacing those behaviors.
+Mac manifest commands detect Git Bash `/c` and WSL `/mnt/c` runtime paths and
+always pass the Windows `C:/...` helper argument to the embedded Windows Python.
+SFTP keeps its native Windows `/D:/...` path format independently of that shell.
 
 Run portable/range/export/library tests on Windows, sync/network/material tests
 on Mac, then real catalog, range, browser video, transcript and slide checks.
