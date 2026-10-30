@@ -13,8 +13,8 @@ from urllib.parse import unquote, urlsplit
 
 
 APPLICATION = "icourse-portable-player"
-VERSION = "1.0.0"
-DEFAULT_SETTINGS = {"destination": r"D:\Videos", "port": 8765}
+VERSION = "1.1.0"
+DEFAULT_SETTINGS = {"destination": r"D:\Videos\Icouse", "port": 8765}
 MEDIA_TYPES = {".mp4": "video/mp4", ".vtt": "text/vtt; charset=utf-8",
                ".json": "application/json; charset=utf-8",
                ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
@@ -30,6 +30,20 @@ def read_json(path, default):
 def settings(directory):
     saved = read_json(directory / "settings.json", {})
     return DEFAULT_SETTINGS | (saved if isinstance(saved, dict) else {})
+
+
+def lesson_preview(folder, stem):
+    """Use a cached video still, or an existing slide for older libraries."""
+    assets = folder / (stem + ".assets")
+    if (assets / "preview.jpg").is_file():
+        return stem + ".assets/preview.jpg"
+    pages = read_json(assets / "timeline.json", [])
+    for page in pages if isinstance(pages, list) else []:
+        name = page.get("file", "") if isinstance(page, dict) else ""
+        target = assets / name
+        if name and target.resolve().is_relative_to(assets.resolve()) and target.is_file():
+            return stem + ".assets/" + name
+    return None
 
 
 def catalog(config):
@@ -52,7 +66,8 @@ def catalog(config):
             meta = meta if isinstance(meta, dict) else {}
             lessons.append({**meta, "number": int(match[1]) if match else 0,
                             "name": video.stem, "video": video.name,
-                            "subtitle": video.with_suffix(".vtt").is_file()})
+                            "subtitle": video.with_suffix(".vtt").is_file(),
+                            "thumbnail": lesson_preview(folder, video.stem)})
         if lessons:
             lessons.sort(key=lambda item: (item["number"] or 9999, item["name"]))
             courses.append({"root": 0, "folder": folder.name, "title": folder.name,
@@ -182,6 +197,14 @@ def make_app(directory, port=None, extension=None):
 
         def do_POST(self):
             if not self.valid_host() or self.headers.get("X-Course-Token") != token:
+                # Drain a small rejected body before closing: unread TCP data
+                # otherwise turns the intended 403 into a reset on Windows.
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if 0 < length < 16384:
+                        self.rfile.read(length)
+                except ValueError:
+                    pass
                 self.close_connection = True
                 self.response({"error": "请求无效，请刷新窗口"}, 403)
                 return

@@ -8,10 +8,10 @@
 - Download, transfer, subtitle generation and eLearning remain ROG/cloud responsibilities. The portable player reads existing media and does not create scheduled tasks or change environment variables.
 
 ## Storage and identity
-- Default library: `D:\Videos`. Read existing course directories, MP4, VTT, lesson metadata, `.assets/timeline.json` and slide images without copying or editing them.
+- Default library: `D:\Videos\Icouse`. Read existing course directories, MP4, VTT, lesson metadata, `.assets/timeline.json` and slide images without copying or editing them.
 - Preserve course folder, lesson stem, root index 0 and `http://127.0.0.1:8765/`. Existing browser localStorage progress and preferences remain available in the same browser/profile/origin. Browser profiles are not exported.
 - `settings.json` only contains destination and port. `data` contains server logs. Runtime, server, page, launchers and documentation all live under the deployment directory.
-- Launch via `启动播放器.vbs` with no console; readiness and deployment identity are checked before opening the default browser. Reopening reuses the existing server. `停止播放器.vbs` requests authenticated shutdown of this deployment only. Browser closure alone does not stop the server.
+- Launch via `播放器.vbs` with no console; readiness, exact executable/script and deployment identity are checked before opening the browser. Activate it again to stop this deployment. A session mutex serializes repeated activations. Browser closure alone does not stop the server. `start-player.ps1 -Stop` remains an explicit shutdown entry.
 
 ## Validation
 - `uv run --no-project --python ..\.venv\Scripts\python.exe python -m unittest test_portable_player -v`.

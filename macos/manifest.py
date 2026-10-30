@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-ROOTS = {"videos": Path("D:/Videos"), "elearning": Path("D:/Documents/Elearning")}
+ROOTS = {"videos": Path("D:/Videos/Icouse"), "elearning": Path("D:/Documents/Elearning")}
 TRANSIENT = (".part", ".transfer", ".tmp", ".elearning-transfer")
 
 

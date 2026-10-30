@@ -1,7 +1,7 @@
 # Mac offline library
 
 ## Ownership and storage
-ROG owns campus downloads and cloud transcripts. OMEN D:\\Videos and
+ROG owns campus downloads and cloud transcripts. OMEN D:\\Videos\\Icouse and
 D:\\Documents\\Elearning remain the primary archives. The Mac receives independent
 copies in ~/Movies/icouse and ~/Documents/Elearning; source deletion never deletes
 a Mac file. Use the project's isolated Python and the existing portable player.

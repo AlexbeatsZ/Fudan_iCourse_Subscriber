@@ -41,7 +41,7 @@ class MacSyncTests(unittest.TestCase):
         status=sync.read_json(self.runtime/'videos-status.json',{})
         self.assertEqual(status['phase'],'waiting')
         with self.assertRaises(sync.Waiting):
-            sync.transfer_file('videos',sync.REMOTE,'en0','D:/Videos',{'path':'x.mp4'},self.base/'x.part',lambda:None)
+            sync.transfer_file('videos',sync.REMOTE,'en0','D:/Videos/Icouse',{'path':'x.mp4'},self.base/'x.part',lambda:None)
 
     def test_command_is_terminated_when_lan_route_disappears(self):
         import sys
@@ -51,6 +51,16 @@ class MacSyncTests(unittest.TestCase):
 
     def test_batch_path_cannot_inject_commands(self):
         with self.assertRaises(ValueError): sync.sftp_quote('file\nput secrets remote')
+
+    def test_manifest_supports_git_bash_and_wsl_without_changing_transport(self):
+        with patch.object(sync, 'guarded_command', return_value='{"files":[]}') as command:
+            self.assertEqual(sync.manifest('videos', sync.LAN, 'en0'), {'files': []})
+        argv, payload, kind, interface = command.call_args.args
+        self.assertEqual((kind, interface), ('videos', 'en0'))
+        self.assertIn('BindInterface=en0', argv)
+        self.assertIn(sync.PYTHON, payload)
+        self.assertIn('/mnt/c/Portable Programs/iCourse Player/runtime/python.exe', payload)
+        self.assertIn(sync.WINDOWS_HELPER, payload)
 
     def test_route_rejects_vpn_gateway_and_other_subnet(self):
         def command(argv,**kwargs):
@@ -66,7 +76,7 @@ class MacSyncTests(unittest.TestCase):
         target.parent.mkdir(parents=True)
         target.write_bytes(b'local edit')
         row={'path':'Course/第01节.mp4','size':10,'mtime_ns':1000000000}
-        listing={'root':'D:/Videos','files':[row]}
+        listing={'root':'D:/Videos/Icouse','files':[row]}
         offsets=[]
         def interrupted(kind,host,interface,remote_root,value,partial,tick):
             partial.write_bytes(b'01234')
@@ -85,7 +95,7 @@ class MacSyncTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(),b'0123456789')
         history=list((self.destination/'.icourse-sync'/'history').rglob('*.mp4'))
         self.assertEqual(history[0].read_bytes(),b'local edit')
-        with patch.object(sync,'connection',return_value=(sync.LAN,'en0')),patch.object(sync,'manifest',return_value={'root':'D:/Videos','files':[]}): sync.sync_once('videos')
+        with patch.object(sync,'connection',return_value=(sync.LAN,'en0')),patch.object(sync,'manifest',return_value={'root':'D:/Videos/Icouse','files':[]}): sync.sync_once('videos')
         self.assertTrue(target.exists())
 
     def test_changed_source_discards_old_partial(self):
@@ -99,7 +109,7 @@ class MacSyncTests(unittest.TestCase):
             partial=args[5]
             self.assertFalse(partial.exists())
             partial.write_bytes(b'new!')
-        def source(kind,host,interface,path=None): return row if path else {'root':'D:/Videos','files':[row]}
+        def source(kind,host,interface,path=None): return row if path else {'root':'D:/Videos/Icouse','files':[row]}
         with patch.object(sync,'connection',return_value=(sync.LAN,'en0')),patch.object(sync,'manifest',side_effect=source),patch.object(sync,'transfer_file',side_effect=copy): sync.sync_once('videos')
         self.assertEqual((self.destination/row['path']).read_bytes(),b'new!')
 
@@ -107,7 +117,7 @@ class MacSyncTests(unittest.TestCase):
         rows=[{'path':'Course/a.json','size':4,'mtime_ns':1},{'path':'Course/b.mp4','size':4,'mtime_ns':1}]
         def copy(*args): args[5].write_bytes(b'data')
         def source(kind,host,interface,path=None):
-            if not path: return {'root':'D:/Videos','files':rows}
+            if not path: return {'root':'D:/Videos/Icouse','files':rows}
             return {**rows[0],'mtime_ns':2} if path.endswith('a.json') else rows[1]
         with patch.object(sync,'connection',return_value=(sync.LAN,'en0')),patch.object(sync,'manifest',side_effect=source),patch.object(sync,'transfer_file',side_effect=copy): sync.sync_once('videos')
         self.assertFalse((self.destination/'Course/a.json').exists())

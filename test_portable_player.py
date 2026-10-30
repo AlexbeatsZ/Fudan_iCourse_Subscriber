@@ -63,6 +63,7 @@ class PortablePlayerTests(unittest.TestCase):
         self.assertEqual([lesson["number"] for lesson in course["lessons"]], [1, 2])
         self.assertEqual(course["lessons"][0]["video"], "第01节.mp4")
         self.assertTrue(course["lessons"][0]["subtitle"])
+        self.assertEqual(course["lessons"][0]["thumbnail"], "第01节.assets/001.jpg")
         with self.get("/media/0/Course/" + quote("第01节.assets/timeline.json")) as response:
             self.assertEqual([page["time"] for page in json.load(response)], [0, 5])
         with self.get("/media/0/Course/" + quote("第01节.vtt")) as response:
@@ -116,6 +117,17 @@ class PortablePlayerTests(unittest.TestCase):
             self.post("/api/run", {"command": "download"}, token)
         self.assertEqual(raised.exception.code, 404)
         raised.exception.close()
+
+    def test_preview_prefers_cached_still_without_changing_identity(self):
+        still = self.media / "Course" / "第01节.assets" / "preview.jpg"
+        still.write_bytes(b"video still")
+        with self.get("/api/library") as response:
+            course = json.load(response)["courses"][0]
+        self.assertEqual(course["folder"], "Course")
+        self.assertEqual(course["lessons"][0]["name"], "第01节")
+        self.assertEqual(course["lessons"][0]["thumbnail"], "第01节.assets/preview.jpg")
+        with self.get("/media/0/Course/" + quote("第01节.assets/preview.jpg")) as response:
+            self.assertEqual(response.read(), b"video still")
 
     def test_export_keeps_playback_and_removes_remote_operations(self):
         source = (Path(__file__).parent / "desktop" / "index.html").read_text(encoding="utf-8")

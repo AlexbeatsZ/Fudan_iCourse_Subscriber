@@ -22,9 +22,10 @@ BASE = Path(__file__).resolve().parents[1]
 RUNTIME = BASE / "local-data" / "mac"
 LAN = "192.168.31.214"
 REMOTE = "100.113.70.121"
-SOURCE_ROOTS = {"videos": "D:/Videos", "elearning": "D:/Documents/Elearning"}
+SOURCE_ROOTS = {"videos": "D:/Videos/Icouse", "elearning": "D:/Documents/Elearning"}
 HELPER = "/c/Portable Programs/iCourse Player/app/mac_manifest.py"
 PYTHON = "/c/Portable Programs/iCourse Player/runtime/python.exe"
+WINDOWS_HELPER = "C:/Portable Programs/iCourse Player/app/mac_manifest.py"
 DEFAULT = {"destination": str(Path.home() / "Movies" / "icouse"), "materials": str(Path.home() / "Documents" / "Elearning"), "port": 8765}
 
 
@@ -143,9 +144,15 @@ def guarded_command(argv, payload, kind, interface, tick=None):
 def manifest(kind, host, interface, path=None):
     if kind == "videos" and (host != LAN or not interface):
         raise Waiting("等待宿舍局域网")
-    command = shlex.quote(PYTHON) + " -X utf8 " + shlex.quote(HELPER) + " " + kind
+    # Windows SSH may resolve `bash` to Git Bash or WSL. The Windows Python
+    # runtime needs a Windows script argument even when launched from WSL.
+    arguments = " -X utf8 " + shlex.quote(WINDOWS_HELPER) + " " + shlex.quote(kind)
     if path is not None:
-        command += " --path " + shlex.quote(path)
+        arguments += " --path " + shlex.quote(path)
+    runtimes = [PYTHON, "/mnt/c/Portable Programs/iCourse Player/runtime/python.exe"]
+    command = ("for runtime in " + " ".join(shlex.quote(p) for p in runtimes)
+               + '; do if [ -x "$runtime" ]; then "$runtime"' + arguments
+               + '; exit $?; fi; done; exit 127')
     value = guarded_command(["/usr/bin/ssh", *ssh_options(host, interface), "meta@" + host, "bash -s"], command + "\n", kind, interface)
     return json.loads(value)
 
