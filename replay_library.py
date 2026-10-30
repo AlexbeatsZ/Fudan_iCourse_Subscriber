@@ -19,8 +19,12 @@ from local_replay import write_json
 BASE = Path(__file__).resolve().parent
 RUNTIME = BASE / "local-data" / "rog"
 def default_destination():
-    if Path(r"E:\Videos").exists():
-        return r"E:\Videos"
+    if os.name == "nt":
+        import ctypes
+        # Do not touch a disconnected mapped drive while importing the module.
+        if ctypes.windll.kernel32.GetDriveTypeW("D:\\") in (2, 3):
+            return r"D:\Videos\Icouse"
+        return r"\\192.168.137.1\D\Videos\Icouse"
     return str(Path.home() / "Videos" / "iCourse")
 
 
@@ -263,6 +267,7 @@ def subtitle_text(segments):
 
 
 def catalog(config):
+    from portable.player import lesson_preview
     ensure_network_share()
     result = []
     for root_index, root in enumerate(roots(config)):
@@ -281,7 +286,8 @@ def catalog(config):
                 num = int(match.group(1)) if match else 0
                 meta = read_json(folder/(video.stem+".lesson.json"), {})
                 lessons.append({"number": num, "name": video.stem, "video": video.name,
-                                "subtitle": video.with_suffix(".vtt").exists(), **meta})
+                                **meta, "subtitle": video.with_suffix(".vtt").exists(),
+                                "thumbnail": lesson_preview(folder, video.stem)})
             if lessons:
                 lessons.sort(key=lambda x: (x["number"] if x["number"] > 0 else 9999, x["name"]))
                 result.append({"root": root_index, "folder": folder.name, "title": folder.name,

@@ -1,8 +1,8 @@
 # Player presentation
 
 - Local entry: desktop/index.html, served fresh by desktop/server.py. Keep video, PPT, transcript, speed, offset, PiP, resume and lesson navigation working.
-- User prefers black minimalism with Swiss-style alignment. Background #141414, surfaces #191919, text #ededeb, secondary #a2a29e, divider #333331. No decorative cards or bright accent palette.
-- Library uses compact rows and a clear resume action; course detail shows real saved position. Progress bars appear only after video duration has been observed. Never invent chapter titles or completion percentages.
+- The 2026-10-30 library redesign uses Swiss typography, paper #f2f1ed, ink #171717, vermilion #f34225 and real course stills. Dark and system appearances use #151716 / #f1f0e8 / #ff654a. See [Swiss library](swiss-player.md). The video/PPT projection workspace stays dark.
+- Library uses a searchable course grid, observed-progress filters and a clear resume action; course detail shows real saved position. Progress bars appear only after video duration has been observed. Never invent chapter titles or completion percentages.
 - Video and PPT share one viewing surface, a shared toolbar and full-width transcript/slide tabs. Native video controls own the timeline. Keep enlarged captions and focus switching.
 - Download/transfer/sync live in Manage courses; offset, autoplay, PiP and shortcut help live in Playback settings. Do not add chapters/notes/extra modes solely from reference suggestions.
 - Capture saved position before loading a new source. Persist time only once media metadata is ready, to prevent initial timeupdate from erasing resume state. Cache only finite duration.
