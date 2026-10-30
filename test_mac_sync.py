@@ -52,6 +52,16 @@ class MacSyncTests(unittest.TestCase):
     def test_batch_path_cannot_inject_commands(self):
         with self.assertRaises(ValueError): sync.sftp_quote('file\nput secrets remote')
 
+    def test_manifest_supports_git_bash_and_wsl_without_changing_transport(self):
+        with patch.object(sync, 'guarded_command', return_value='{"files":[]}') as command:
+            self.assertEqual(sync.manifest('videos', sync.LAN, 'en0'), {'files': []})
+        argv, payload, kind, interface = command.call_args.args
+        self.assertEqual((kind, interface), ('videos', 'en0'))
+        self.assertIn('BindInterface=en0', argv)
+        self.assertIn(sync.PYTHON, payload)
+        self.assertIn('/mnt/c/Portable Programs/iCourse Player/runtime/python.exe', payload)
+        self.assertIn(sync.WINDOWS_HELPER, payload)
+
     def test_route_rejects_vpn_gateway_and_other_subnet(self):
         def command(argv,**kwargs):
             class Result: returncode=0
