@@ -18,6 +18,7 @@ import traceback
 
 from src.runtime import config
 from src.data.database import Database
+from src.data.retry import may_retry
 from src.api.emailer import Emailer
 from src.api.icourse import ICourseClient
 from src.pipeline.lecture_runner import LectureRunner
@@ -115,13 +116,14 @@ def _enumerate_lectures(client: ICourseClient, db: Database,
             lectures = deduped
 
             known_processed = db.get_processed_sub_ids(course_id)
-            new_lectures = [
-                lec for lec in lectures
-                if lec.get("has_playback")
-                and (str(lec["sub_id"]) not in known_processed
-                     or (not (db.get_lecture(str(lec["sub_id"])) or {}).get("transcript_segments")
-                         and ((db.get_lecture(str(lec["sub_id"])) or {}).get("error_count") or 0) < 3))
-            ]
+            def wanted(lec):
+                row = db.get_lecture(str(lec["sub_id"])) or {}
+                if row.get("error_stage") == "no_video" and not may_retry(row):
+                    return False  # replay never appeared within NO_VIDEO_RETRY_DAYS
+                return (str(lec["sub_id"]) not in known_processed
+                        or (not row.get("transcript_segments") and may_retry(row)))
+
+            new_lectures = [lec for lec in lectures if lec.get("has_playback") and wanted(lec)]
             unprocessed = db.get_unprocessed_lectures(course_id)
             new_ids = {str(lec["sub_id"]) for lec in new_lectures}
             retry_only = [

@@ -7,6 +7,7 @@ import threading
 from datetime import datetime
 
 from src.runtime import config
+from src.data.retry import MAX_ERRORS, no_video_cutoff
 from src.data.schema import (
     LECTURES_MIGRATION_COLUMNS,
     PPT_PAGES_MIGRATION_COLUMNS,
@@ -194,23 +195,26 @@ class Database:
         return {row["sub_id"] for row in rows}
 
     def get_unprocessed_lectures(self, course_id: str | None = None,
-                                  max_errors: int = 3) -> list[dict]:
+                                  max_errors: int = MAX_ERRORS) -> list[dict]:
         """Return lectures that need (re-)processing.
 
         Only returns lectures whose ``error_count`` is below *max_errors* —
         a permanently-failing lecture (e.g. ``get-sub-info`` RuntimeError
         for a removed recording) is abandoned after that many attempts
-        rather than clogging every workflow run.
+        rather than clogging every workflow run.  A lecture whose replay is
+        not published yet (``no_video``) keeps being retried for
+        ``NO_VIDEO_RETRY_DAYS`` after its date.
         """
         query = (
             "SELECT * FROM lectures"
             " WHERE processed_at IS NULL"
-            "   AND (error_count IS NULL OR error_count < ?)"
+            "   AND (error_count IS NULL OR error_count < ?"
+            "        OR (error_stage = 'no_video' AND COALESCE(date, '') >= ?))"
         )
-        params: tuple = (max_errors,)
+        params: tuple = (max_errors, no_video_cutoff())
         if course_id:
             query += " AND course_id = ?"
-            params = (max_errors, course_id)
+            params = (*params, course_id)
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]

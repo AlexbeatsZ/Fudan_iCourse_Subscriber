@@ -65,3 +65,16 @@ times with `0 4-22/6 * * *`, equivalent to `0 4,10,16,22 * * *`: 04:00,
 This is a recovery attempt; the provider's internal reason for the scheduling
 gap is unknown, and an actual subsequent `schedule` run is required to confirm
 recovery. See [GitHub's workflow troubleshooting guide](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflow-stopped-running).
+
+## Missing replays (`no_video`)
+
+A lecture can be listed with playback before its video URL is published. Each
+attempt records `error_stage = 'no_video'`. With four runs a day, the shared
+three-error limit abandoned such lectures within about 18 hours, and the probe
+never requested another run for them (2026-11-02: 生物化学B 10-29 here and a
+friend's 10-27 lecture were both dropped this way).
+
+`src/data/retry.py` is the single policy used by the probe, `main.py` and
+`Database.get_unprocessed_lectures`: other failures keep the three-attempt
+limit; `no_video` is retried on every run until 7 days after the lecture date,
+then skipped. Keep these three call sites on the same helper.

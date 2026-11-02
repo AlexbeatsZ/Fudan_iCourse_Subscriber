@@ -12,6 +12,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.downloader import login, cloud_database
 from replay_library import settings, ordered_lectures
+from src.data.retry import may_retry
 
 
 def error_summary(error):
@@ -79,7 +80,7 @@ def probe(config):
                                 continue
                             row = db.execute("SELECT * FROM lectures WHERE sub_id=?", (str(lecture["sub_id"]),)).fetchone()
                             row = dict(row) if row else {}
-                            if (row.get("error_count") or 0) < 3 and (not row.get("processed_at") or not row.get("transcript_segments")):
+                            if may_retry(row) and (not row.get("processed_at") or not row.get("transcript_segments")):
                                 needed = True
         finally:
             client.vpn.session.close()

@@ -335,7 +335,8 @@ class LectureRunner:
             # AudioDownloader returns None when get_video_url() returned
             # None — i.e. the lecture has no playable video.  Record an
             # error so the lecture is retried (the video may appear later)
-            # but abandoned after max_errors instead of every day forever.
+            # every run for NO_VIDEO_RETRY_DAYS after the lecture date, then
+            # abandoned instead of every day forever (src/data/retry.py).
             # The "no_video" stage is a contract with the frontend, which
             # renders it as a gray "无视频" hint instead of a red failure.
             self._reporter.lecture_skip_no_video(
