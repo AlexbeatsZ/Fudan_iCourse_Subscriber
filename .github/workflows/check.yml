@@ -61,6 +61,7 @@ jobs:
         env:
           FUDAN_STUID: ${{ secrets.STUID }}
           FUDAN_UISPSW: ${{ secrets.UISPSW }}
+          UIS_TOTP_SECRET: ${{ secrets.UIS_TOTP_SECRET }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_PASSWORD_PREVIOUS: ${{ secrets.DB_PASSWORD_PREVIOUS }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -191,6 +192,7 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
+          UIS_TOTP_SECRET: ${{ secrets.UIS_TOTP_SECRET }}
           CRAWL_TERM: ${{ secrets.CRAWL_TERM }}
         run: |
           python -u main.py
