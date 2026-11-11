@@ -11,12 +11,15 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.downloader import login, cloud_database
+from src.api.webvpn import SecondFactorError
 from replay_library import settings, ordered_lectures
 from src.data.retry import may_retry
 
 
 def error_summary(error):
     """Keep status/host diagnostics without leaking CAS tickets or signed URLs."""
+    if isinstance(error, SecondFactorError):
+        return str(error)  # Only fixed, credential-free messages are raised by this type.
     response = getattr(error, "response", None)
     if response is not None:
         host = urlsplit(response.url or "").hostname or "unknown host"
