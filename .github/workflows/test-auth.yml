@@ -1,0 +1,27 @@
+name: Test UIS authentication
+
+on:
+  pull_request:
+    paths:
+      - "src/api/**"
+      - "src/runtime/config.py"
+      - "tests/test_totp_login.py"
+      - ".github/workflows/test-auth.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  totp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: pip install requests pycryptodome
+      - name: Test OTP generation and challenge handling (offline)
+        run: python -m unittest discover -s tests -p 'test_totp_login.py' -v
