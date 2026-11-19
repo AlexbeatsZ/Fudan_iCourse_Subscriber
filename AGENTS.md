@@ -3,6 +3,7 @@
 增加 eLearning 文件增量归档：当前课程可配置定时同步，往期课程一次性归档，保留平台文件目录层级并预留通知发送接口。
 
 # Current State
+- 2026-11-19：ROG 的 iCourse 下载已通过 UIS TOTP 实测。原计划任务下载并转存生物化学B第10节（2,255,497,662 字节）和对应 PPT 时间轴到 OMEN `D:\Videos\Icouse`。密钥由 ROG 当前 Windows 用户的 DPAPI 存储，重新绑定后按 [ROG library](docs/design/rog-library.md) 更新。
 Mac 部署在 `/Users/meta/Project/Workspaces/icourse`，使用项目 `.venv` 与 `macos/` 标准库同步/播放器。视频副本 `~/Movies/icouse` 只经宿舍直连 LAN 拉取；`~/Documents/Elearning` 外出可经 Tailscale。源删除不传播，本地修改先保留历史。设计索引：[Mac offline sync](docs/design/mac-offline-sync.md)。
 上游完整克隆，基于 5492d55，工作分支 feat/local-replay-ppt 与 main 同步。origin 为 AlexbeatsZ/Fudan_iCourse_Subscriber，upstream 为 LeafCreeper/Fudan_iCourse_Subscriber。
 已移除 GitHub Actions 中的自动 AI 总结与邮件发送，仅保留 SenseVoice ASR 单行对轴字幕提取与分片入库。定时 cron 设为每日 06:00, 12:00, 18:00, 24:00 (UTC 22, 04, 10, 16)。
@@ -12,7 +13,6 @@ eLearning 当前 9 个课程/站点在 ROG 每天四次同步至 OMEN `D:\Docume
 截至 2026-09-28，本机 `D:\Videos` 的 7 门订阅课程有 27 节视频、27 个课件目录、19 份 VTT 字幕；新增录像的字幕尚未全部生成。课程对应数量：物理化学AⅢ 5、生物化学B 3、量子化学原理及应用(H) 6、人工智能在化学中的应用 3、应用化学专题 4、无机化学 4、数智化实用英文写作 2。
 
 # Active Work
-- 2026-11-18：ROG 视频下载已部署来自自身 fork 的 UIS TOTP 修复。合成密钥的 Windows DPAPI 存取验证通过，真实下载需由 Meta 在 ROG 输入当前绑定的 Base32 设置密钥后验收。配置命令和存储见 [ROG library](docs/design/rog-library.md)。
 - 2026-10-17: `9029ce8` 已推送 main；修复已合入 feat/local-replay-ppt（`b57685e`），相关测试 main 21 项、工作分支 30 项通过。GitHub 自动停用了 fork 工作流，已在网页重新启用。真实巡检 #90 成功（2m55s）：复旦登录、云端数据库解密、7 门课程检查通过，needed=true。已启动正式工作流 #91（38997984175）；ASR/数据更新尚未验收完成。巡检使用 GitHub 自带令牌，临时 HTTP/连接/非 JSON 故障最多尝试 3 次，持续故障保持失败；错误仅记录状态码和主机。新增 `probe_only`，默认手动强制处理行为保留。设计：[Actions probe](docs/design/actions-probe.md)。截图 #2（2026-09-16）的日志已不可用，历史根因未知；#23/#80 为登录成功后的 HTTPError，旧日志没有状态码。
 - 2026-10-13: Mac 三个独立用户 LaunchAgent 已部署；190 个 eLearning 文件（2,606,957,839 字节）初始副本完成，视频全量队列运行中。真实英文写作录像、字幕跳转、PPT、暂停和续传已验收。ROG 主程序课件轮询完成（32 unchanged、0 errors），原有 eLearning 定时任务已实际返回 0（32 unchanged、0 errors）；iCourse 下载已交回原有定时任务，补下载继续运行。
 - 2026-10-13: ROG 两个目标配置按用户最终确认使用 OMEN `192.168.137.1` 直连 UNC；Mac 独立使用 `192.168.31.214` LAN，SMB 认证随目标服务器变化，读取当前注册表密码并使用明确的 OMEN 本地账户；避免对已可达共享重新认证。非 JSON 课次列表会有限重登录重试，单门失败不终止其他课程；完成每节视频/课件后立即转存。Mac 路径规范化兼容性与播放器扩展保留 Windows 行为。
