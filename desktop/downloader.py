@@ -46,11 +46,14 @@ def save_credentials(account, password):
 
 
 def login():
-    from src.api.webvpn import WebVPNSession
+    from src.api.webvpn import SecondFactorError, WebVPNSession
     from src.api.icourse import ICourseClient
+    from desktop.uis_totp import load_totp_secret
+
     account, password = credentials()
+    totp_secret = load_totp_secret()
     for attempt in range(10):
-        vpn = WebVPNSession()
+        vpn = WebVPNSession(totp_secret=totp_secret)
         vpn.session.trust_env = False
         try:
             vpn.login(account, password)
@@ -59,6 +62,9 @@ def login():
             if not client.check_alive():
                 raise RuntimeError("登录会话验证失败")
             return client
+        except SecondFactorError:
+            vpn.session.close()
+            raise  # Configuration or verification required; retrying passwords cannot help.
         except Exception:
             vpn.session.close()
             if attempt == 9:

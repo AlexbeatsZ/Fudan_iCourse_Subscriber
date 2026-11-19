@@ -1,11 +1,13 @@
 # GitHub recognition and ROG replay library
 
 ## Ownership
-GitHub Actions discovers courses hourly and runs SenseVoice/OCR/summary only when processing or timed-subtitle backfill is needed. Videos are downloaded directly on META-ROGALLY. No video artifact relay or school session export is used.
+GitHub Actions is configured to check for new recordings and missing subtitle timelines every six hours. The ROG worker downloads video and PPT directly from iCourse and reads the encrypted GitHub data branch for subtitle timelines.
 
 ## Storage and credentials
 - ROG project: `C:\Users\Meta\Project\Workspaces\icourse`.
 - Persistent user environment variables: `FUDAN_STUID`, `FUDAN_UISPSW`. Read HKCU Environment on each operation so edits take effect without restarting Explorer. GitHub retains `STUID`, `UISPSW`; local edits do not update GitHub Secrets.
+- On ROG, run `.\.venv\Scripts\python.exe -m desktop.uis_totp` from the repository in a PowerShell window under the scheduled task's Windows user. Enter the UIS Authenticator Base32 setup key at the hidden prompt. The command writes `local-data/rog/uis-totp.dpapi`, protected with Windows user DPAPI. Enter the same setup key again on a new PC or Windows account. GitHub Actions continues to read its own `UIS_TOTP_SECRET`.
+- The downloader uses the same TOTP challenge handler as GitHub. An unsupported challenge, missing setup key, or rejected TOTP stops automatic authentication retries and reports `SecondFactorError`.
 - Target: `D:\Videos`, backed by `\\192.168.137.1\D\Videos`; use UNC for background work. ROG's repaired Z/D/E mappings use the same direct link and are preserved; Windows Credential Manager owns SMB credentials.
 - Download first to `Downloads\iCourse\<course title>\第01节.mp4`, then transfer completed lectures to target. No mandatory wait for OCR or subtitles.
 - Copy into a `.transfer` file, flush, check its size, rename, and only then remove source. Existing same-name, same-size target files count as transferred without reading their contents; size conflicts are preserved and reported. A target `*.mp4.json` sidecar may differ in text length when its `complete` and `total` fields still match the video, so keep that valid target record. Remove failed or stale `.transfer` files. Unavailable network storage never removes staged video.
