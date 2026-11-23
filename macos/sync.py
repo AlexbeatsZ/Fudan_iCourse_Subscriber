@@ -23,9 +23,9 @@ RUNTIME = BASE / "local-data" / "mac"
 LAN = "192.168.31.214"
 REMOTE = "100.113.70.121"
 SOURCE_ROOTS = {"videos": "D:/Videos/Icouse", "elearning": "D:/Documents/Elearning"}
-HELPER = "/c/Portable Programs/iCourse Player/app/mac_manifest.py"
-PYTHON = "/c/Portable Programs/iCourse Player/runtime/python.exe"
-WINDOWS_HELPER = "C:/Portable Programs/iCourse Player/app/mac_manifest.py"
+HELPER = "/c/Users/Meta/AppData/Local/Programs/iCourse Player/app/mac_manifest.py"
+PYTHON = "/c/Users/Meta/AppData/Local/Programs/iCourse Player/runtime/python.exe"
+WINDOWS_HELPER = "C:/Users/Meta/AppData/Local/Programs/iCourse Player/app/mac_manifest.py"
 DEFAULT = {"destination": str(Path.home() / "Movies" / "icouse"), "materials": str(Path.home() / "Documents" / "Elearning"), "port": 8765}
 
 
@@ -149,7 +149,7 @@ def manifest(kind, host, interface, path=None):
     arguments = " -X utf8 " + shlex.quote(WINDOWS_HELPER) + " " + shlex.quote(kind)
     if path is not None:
         arguments += " --path " + shlex.quote(path)
-    runtimes = [PYTHON, "/mnt/c/Portable Programs/iCourse Player/runtime/python.exe"]
+    runtimes = [PYTHON, "/mnt/c/Users/Meta/AppData/Local/Programs/iCourse Player/runtime/python.exe"]
     command = ("for runtime in " + " ".join(shlex.quote(p) for p in runtimes)
                + '; do if [ -x "$runtime" ]; then "$runtime"' + arguments
                + '; exit $?; fi; done; exit 127')
