@@ -4,7 +4,7 @@
 
 # Current State
 - 2026-11-19：ROG 的 iCourse 下载已通过 UIS TOTP 实测。原计划任务下载并转存生物化学B第10节（2,255,497,662 字节）和对应 PPT 时间轴到 OMEN `D:\Videos\Icouse`。密钥由 ROG 当前 Windows 用户的 DPAPI 存储，重新绑定后按 [ROG library](docs/design/rog-library.md) 更新。
-Mac 部署在 `/Users/meta/Project/Workspaces/icourse`，使用项目 `.venv` 与 `macos/` 标准库同步/播放器。视频副本 `~/Movies/icouse` 只经宿舍直连 LAN 拉取；`~/Documents/Elearning` 外出可经 Tailscale。源删除不传播，本地修改先保留历史。设计索引：[Mac offline sync](docs/design/mac-offline-sync.md)。
+Mac 部署在 `/Users/meta/Developer/icourse`，使用项目 `.venv` 与 `macos/` 标准库同步/播放器。视频副本 `~/Movies/icouse` 只经宿舍直连 LAN 拉取；`~/Documents/Elearning` 外出可经 Tailscale。源删除不传播，本地修改先保留历史。设计索引：[Mac offline sync](docs/design/mac-offline-sync.md)。
 上游完整克隆，基于 5492d55，工作分支 feat/local-replay-ppt 与 main 同步。origin 为 AlexbeatsZ/Fudan_iCourse_Subscriber，upstream 为 LeafCreeper/Fudan_iCourse_Subscriber。
 已移除 GitHub Actions 中的自动 AI 总结与邮件发送，仅保留 SenseVoice ASR 单行对轴字幕提取与分片入库。定时 cron 设为每日 06:00, 12:00, 18:00, 24:00 (UTC 22, 04, 10, 16)。
 本地播放器运行于 http://127.0.0.1:8765/，支持单行字幕分段（subtitle_text）与幻灯片专注模式（Z 放大/S 切换/字幕悬浮）。
